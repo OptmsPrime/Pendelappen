@@ -33,6 +33,17 @@ export function localToMs(str) {
   return ms;
 }
 
+// millisekunder -> "2026-10-13T07:40:00.000+02:00" (svensk tid med offset), för Trafikverket
+export function msToIso(ms) {
+  const p = parts(ms);
+  const off = Math.round(tzOffset(ms) / MIN);
+  const sign = off >= 0 ? '+' : '-';
+  const a = Math.abs(off);
+  const hh = String(Math.floor(a / 60)).padStart(2, '0');
+  const mm = String(a % 60).padStart(2, '0');
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}.000${sign}${hh}:${mm}`;
+}
+
 // millisekunder -> "2026-10-13T07:40" (svensk lokaltid), för Trafiklabs tidsparameter
 export function msToParam(ms) {
   const p = parts(ms);
@@ -72,16 +83,18 @@ async function tlGet(path) {
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFC').replace(/\s+/g, ' ').trim();
 
-// Hållplatser appen använder. Kan skrivas över med miljövariabler om sökningen väljer fel.
+// Hållplatser appen använder. ID:na är hämtade från Trafiklab 2026-10-13.
+// Kan skrivas över med miljövariabler om något ändras.
 export const STOPS = {
-  homeMetro: { env: 'STOP_HAMMARBYHOJDEN', mode: 'METRO', names: ['Hammarbyhöjden'] },
-  cityMetro: { env: 'STOP_TCENTRALEN', mode: 'METRO', names: ['T-Centralen', 'Stockholm Centralstation', 'Stockholm City'] },
-  vasBus: { env: 'STOP_VASTERAS', mode: 'BUS', names: ['Västerås Centralstation', 'Västerås Resecentrum', 'Västerås C'] },
-  workBus: { env: 'STOP_FINNSLATTEN', mode: 'BUS', names: ['Finnslätten'] }
+  homeMetro: { env: 'STOP_HAMMARBYHOJDEN', id: '740021695', mode: 'METRO', names: ['Hammarbyhöjden'] },
+  cityMetro: { env: 'STOP_TCENTRALEN', id: '740020749', mode: 'METRO', names: ['T-Centralen'] },
+  vasBus: { env: 'STOP_VASTERAS', id: '740000099', mode: 'BUS', names: ['Västerås Centralstation'] },
+  workBus: { env: 'STOP_FINNSLATTEN', id: '740043363', mode: 'BUS', names: ['Finnslätten'] }
 };
 
 export async function lookupStop(def) {
   if (process.env[def.env]) return { id: process.env[def.env], name: def.names[0], source: 'inställning' };
+  if (def.id) return { id: def.id, name: def.names[0], source: 'fast' };
   return cached('stop:' + def.names[0], 24 * HOUR, async () => {
     for (const name of def.names) {
       const data = await tlGet(`/stops/name/${encodeURIComponent(name)}`);
@@ -144,15 +157,15 @@ const TV_FIELDS = ['AdvertisedTrainIdent', 'AdvertisedTimeAtLocation', 'Estimate
 
 const xmlEsc = (s) => String(s).replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
 
-function tvQuery(activity, sig, from, to) {
+function tvQuery(activity, sig, fromMs, toMs) {
   const include = TV_FIELDS.map((f) => `<INCLUDE>${f}</INCLUDE>`).join('');
   return `<QUERY objecttype="TrainAnnouncement" schemaversion="1.9" orderby="AdvertisedTimeAtLocation">` +
     `<FILTER><AND>` +
     `<EQ name="ActivityType" value="${activity}"/>` +
     `<EQ name="LocationSignature" value="${xmlEsc(sig)}"/>` +
     `<EQ name="Advertised" value="true"/>` +
-    `<GT name="AdvertisedTimeAtLocation" value="$dateadd(${from})"/>` +
-    `<LT name="AdvertisedTimeAtLocation" value="$dateadd(${to})"/>` +
+    `<GT name="AdvertisedTimeAtLocation" value="${msToIso(fromMs)}"/>` +
+    `<LT name="AdvertisedTimeAtLocation" value="${msToIso(toMs)}"/>` +
     `</AND></FILTER>${include}</QUERY>`;
 }
 
@@ -163,16 +176,18 @@ const tvTime = (a) => ({
   track: a.TrackAtLocation || null
 });
 
-// Tåg som går från stationen fromSig och kommer fram till toSig ("Cst" = Stockholm C, "Vå" = Västerås C)
-export async function trains(fromSig, toSig) {
+// Tåg som avgår från fromSig mellan fromMs och toMs och kommer fram till toSig ("Cst" = Stockholm C, "Vå" = Västerås C)
+export async function trains(fromSig, toSig, fromMs, toMs, withRaw) {
   const key = process.env.TRAFIKVERKET_KEY;
   if (!key) throw new Error('TRAFIKVERKET_KEY saknas i Vercels inställningar.');
-  return cached(`tv:${fromSig}:${toSig}`, 30 * 1000, async () => {
+  const f = Math.floor(fromMs / MIN) * MIN;
+  const t = Math.ceil(toMs / MIN) * MIN;
+  return cached(`tv:${fromSig}:${toSig}:${f}:${t}:${withRaw ? 1 : 0}`, 30 * 1000, async () => {
     const body = `<REQUEST><LOGIN authenticationkey="${xmlEsc(key)}"/>` +
-      tvQuery('Avgang', fromSig, '-00:30:00', '04:00:00') +
-      tvQuery('Ankomst', toSig, '-00:30:00', '06:00:00') +
+      tvQuery('Avgang', fromSig, f, t) +
+      tvQuery('Ankomst', toSig, f, t + 3 * HOUR) +
       `</REQUEST>`;
-    const r = await fetch(TV_URL, { method: 'POST', headers: { 'content-type': 'text/xml', accept: 'application/json' }, body });
+    const r = await fetch(TV_URL, { method: 'POST', headers: { 'content-type': 'text/xml; charset=utf-8', accept: 'application/json' }, body });
     const json = await r.json().catch(() => null);
     const results = json && json.RESPONSE && json.RESPONSE.RESULT;
     const err = results && results.find((x) => x.ERROR);
@@ -199,6 +214,8 @@ export async function trains(fromSig, toSig) {
         from, to
       });
     }
+    out.sort((a, b) => a.from.sched - b.from.sched);
+    if (withRaw) return { list: out, rawDeps: deps.length, rawArrs: arrs.length, query: [msToIso(f), msToIso(t)] };
     return out;
   });
 }
