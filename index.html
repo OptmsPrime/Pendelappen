@@ -54,6 +54,20 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); font-weight: 600; }
 
 .list { display: flex; flex-direction: column; gap: 12px; }
+
+/* Tidshjul i stil med iOS-larmet: tre synliga rader, mittenraden är vald. */
+.picker { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 8px 16px 12px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.wheels { position: relative; display: flex; align-items: center; justify-content: center; gap: 4px; height: 132px; width: 100%; max-width: 240px; }
+.band { position: absolute; left: 0; right: 0; top: 44px; height: 44px; background: var(--soft); border-radius: 10px; pointer-events: none; }
+.wheel { position: relative; height: 132px; width: 84px; overflow-y: scroll; scroll-snap-type: y mandatory; scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent); mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent); }
+.wheel::-webkit-scrollbar { display: none; }
+.wheel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 10px; }
+.wheel .pad { height: 44px; }
+.wheel .it { height: 44px; display: flex; align-items: center; justify-content: center; scroll-snap-align: center; font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--muted); cursor: pointer; user-select: none; -webkit-user-select: none; }
+.wheel .it.on { color: var(--fg); font-weight: 700; }
+.colon { position: relative; font-size: 28px; font-weight: 700; color: var(--fg); padding-bottom: 3px; }
+.pickhint { font-family: var(--mono); font-size: 12px; color: var(--muted); min-height: 16px; }
 .trip { display: flex; flex-direction: column; gap: 14px; background: var(--card); border-radius: 16px; padding: 16px; border: 1px solid var(--line); text-align: left; width: 100%; }
 .trip.first { border: 2px solid var(--ink); padding: 15px; }
 .big { font-size: 44px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
@@ -136,6 +150,21 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
         <button id="dir-home" aria-pressed="false">Hem</button>
       </div>
 
+      <div class="seg" role="group" aria-label="När">
+        <button id="mode-now" aria-pressed="true">Åk nu</button>
+        <button id="mode-arrive" aria-pressed="false">Framme senast</button>
+      </div>
+
+      <div class="picker" id="picker" hidden>
+        <div class="wheels">
+          <div class="band" aria-hidden="true"></div>
+          <div class="wheel" id="wheel-h" tabindex="0" role="listbox" aria-label="Timme"></div>
+          <div class="colon" aria-hidden="true">:</div>
+          <div class="wheel" id="wheel-m" tabindex="0" role="listbox" aria-label="Minut"></div>
+        </div>
+        <div class="pickhint" id="pick-hint"></div>
+      </div>
+
       <div id="banner" hidden></div>
       <div class="list" id="trips"></div>
       <div class="status" id="updated"></div>
@@ -206,6 +235,8 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
     return {
       hideFast: !!s.hideFast,
       pin: s.pin || '',
+      mode: s.mode === 'arrive' ? 'arrive' : 'now',
+      arrive: Object.assign({ work: '08:30', home: '17:30' }, s.arrive),
       margins: {
         work: Object.assign({}, BASE, old, m.work),
         home: Object.assign({}, BASE, old, m.home)
@@ -219,16 +250,26 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
   // ---------- Tid ----------
   var hm = new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
   var dayFmt = new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'short' });
-  var hourFmt = new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, hour: 'numeric', hourCycle: 'h23' });
   function t(ms) { return ms == null ? '–' : hm.format(new Date(ms)); }
   function mins(ms) { return Math.round(ms / MIN); }
   function dur(ms) { var m = mins(ms); return m >= 60 ? Math.floor(m / 60) + ' tim ' + (m % 60) + ' min' : m + ' min'; }
+
+  // Framme senast: vald klockslag i dag, eller i morgon om det redan har passerat.
+  function targetMs(hhmm, now) {
+    var p = String(hhmm).split(':');
+    var d = new Date(now);
+    var x = new Date(d.getFullYear(), d.getMonth(), d.getDate(), Number(p[0]), Number(p[1]), 0, 0).getTime();
+    if (x < now + 20 * MIN) x = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, Number(p[0]), Number(p[1]), 0, 0).getTime();
+    return x;
+  }
+  function currentTarget() { return cfg.mode === 'arrive' ? targetMs(cfg.arrive[dir], Date.now()) : null; }
+  function wantKey() { return dir + '|' + (cfg.mode === 'arrive' ? cfg.arrive[dir] : 'now'); }
 
   // ---------- Bygg resor (ren funktion, testbar) ----------
   function latest(list, ok) { var best = null; list.forEach(function (x) { if (!x.canceled && ok(x) && (!best || x.from.rt > best.from.rt)) best = x; }); return best; }
   function earliest(list, ok) { var best = null; list.forEach(function (x) { if (!x.canceled && ok(x) && (!best || x.from.rt < best.from.rt)) best = x; }); return best; }
 
-  function buildTrips(d, m, now) {
+  function buildTrips(d, m, now, target) {
     var out = [];
     (d.trains || []).forEach(function (tr) {
       if (m.hideFast && /snabbt|x ?2000/i.test(tr.product || '')) return;
@@ -249,6 +290,7 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
       var firstStep = d.dir === 'work' ? metro : bus;
       var missed = firstStep ? firstStep.from.rt < now : dep < now;
       if (missed) return;
+      if (target && (arrive == null || arrive > target)) return;
       var delay = mins(tr.from.rt - tr.from.sched);
       var status;
       if (tr.canceled) status = { text: 'Inställt', cls: 'bad' };
@@ -261,8 +303,8 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
   }
 
   // ---------- Exempeldata (när appen inte når sitt API) ----------
-  function demo(dir, now) {
-    var base = Math.floor(now / (30 * MIN)) * 30 * MIN;
+  function demo(dir, now, target) {
+    var base = Math.floor((target ? target - 3 * 60 * MIN : now) / (30 * MIN)) * 30 * MIN;
     var tr = [], me = [], bu = [];
     for (var i = 0; i < 5; i++) {
       var dep = base + (i * 30 + 25) * MIN, late = i === 1 ? 4 * MIN : 0;
@@ -282,20 +324,20 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
         ? { line: '4', dest: 'Finnslätten', canceled: false, from: { sched: bd, rt: bd, name: 'Västerås Centralstation' }, to: { sched: bd + 11 * MIN, rt: bd + 11 * MIN, name: 'Finnslätten' } }
         : { line: '4', dest: 'Centrum', canceled: false, from: { sched: bd, rt: bd, name: 'Finnslätten' }, to: { sched: bd + 11 * MIN, rt: bd + 11 * MIN, name: 'Västerås Centralstation' } });
     }
-    return { dir: dir, generatedAt: now, trains: tr, metro: me, bus: bu, warnings: [], demo: true };
+    return { dir: dir, arriveBy: target || null, generatedAt: now, trains: tr, metro: me, bus: bu, warnings: [], demo: true };
   }
 
   // ---------- Hämta ----------
-  var dir = Number(hourFmt.format(new Date())) < 12 ? 'work' : 'home';
+  var dir = 'work';
   var data = null, trips = [], selected = 0, loading = false, problem = null;
 
   function fetchData() {
     if (loading) return;
     loading = true; setSpin(true);
-    var want = dir;
+    var want = dir, key = wantKey(), target = currentTarget();
     var ctrl = window.AbortController ? new AbortController() : null;
     var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 20000);
-    fetch('api/trips?dir=' + want, { headers: { 'x-app-pin': cfg.pin || '' }, signal: ctrl ? ctrl.signal : undefined })
+    fetch('api/trips?dir=' + want + (target ? '&arriveBy=' + target : ''), { headers: { 'x-app-pin': cfg.pin || '' }, signal: ctrl ? ctrl.signal : undefined })
       .then(function (r) {
         var isJson = (r.headers.get('content-type') || '').indexOf('json') >= 0;
         if (!isJson) throw { demo: true };
@@ -305,17 +347,17 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
           return j;
         });
       })
-      .then(function (j) { problem = null; data = j; })
+      .then(function (j) { problem = null; j.key = key; data = j; })
       .catch(function (e) {
         if (e && e.pin) { problem = { kind: 'pin', msg: e.msg }; data = null; }
         else if (e && e.msg) { problem = { kind: 'error', msg: e.msg }; }
         else if (e && e.name === 'AbortError') { problem = { kind: 'error', msg: 'Ingen kontakt med servern. Försök igen.' }; }
-        else { problem = null; data = demo(want, Date.now()); }
+        else { problem = null; data = demo(want, Date.now(), target); data.key = key; }
       })
       .then(function () {
         clearTimeout(timer);
         loading = false; setSpin(false);
-        if (want !== dir) return fetchData();
+        if (key !== wantKey()) return fetchData();
         renderList();
       });
   }
@@ -331,7 +373,11 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
   }
 
   function renderHeader() {
-    $('today').textContent = dayFmt.format(new Date());
+    var tg = currentTarget();
+    $('today').textContent = dayFmt.format(new Date(tg || Date.now()));
+    $('mode-now').setAttribute('aria-pressed', String(cfg.mode === 'now'));
+    $('mode-arrive').setAttribute('aria-pressed', String(cfg.mode === 'arrive'));
+    $('picker').hidden = cfg.mode !== 'arrive';
     $('title').textContent = dir === 'work' ? 'Till jobbet' : 'Hem';
     $('route').textContent = dir === 'work' ? 'Hammarbyhöjden → Finnslätten' : 'Finnslätten → Hammarbyhöjden';
     $('dir-work').setAttribute('aria-pressed', String(dir === 'work'));
@@ -358,26 +404,31 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
     }
 
     var box = $('trips');
-    if (!data || data.dir !== dir) {
+    if (!data || data.key !== wantKey()) {
       box.innerHTML = problem ? '' : '<div class="empty">Hämtar avgångar…</div>';
       $('updated').textContent = '';
       return;
     }
-    trips = buildTrips(data, marginsFor(dir), now).slice(0, 4);
+    var target = data.arriveBy || null;
+    trips = buildTrips(data, marginsFor(dir), now, target);
+    trips = target ? trips.slice(-4) : trips.slice(0, 4);
+    var best = target ? trips.length - 1 : 0;
     if (!trips.length) {
-      box.innerHTML = '<div class="empty">Inga tåg de närmaste timmarna.<br>Tryck på uppdatera eller byt riktning.</div>';
+      box.innerHTML = target
+        ? '<div class="empty">Ingen resa hittades som är framme senast ' + t(target) + '.<br>Prova en senare tid.</div>'
+        : '<div class="empty">Inga tåg de närmaste timmarna.<br>Tryck på uppdatera eller byt riktning.</div>';
     } else {
       box.innerHTML = trips.map(function (r, i) {
-        var tr = r.train, first = i === 0;
+        var tr = r.train, first = i === best;
         var a = dir === 'work' ? r.metro : r.bus, c = dir === 'work' ? r.bus : r.metro;
         var aChip = dir === 'work' ? 'T' + esc(a ? a.line : '17') + ' ' + t(a && a.from.rt) : 'Buss ' + esc(a ? a.line : '4') + ' ' + t(a && a.from.rt);
         var cChip = dir === 'work' ? 'Buss ' + esc(c ? c.line : '4') + ' ' + t(c && c.from.rt) : 'T' + esc(c ? c.line : '17') + ' ' + t(c && c.from.rt);
         var trainChip = 'Tåg ' + t(tr.from.rt) + (tr.from.track ? ' · spår ' + esc(tr.from.track) : '');
         var note = '';
-        if (first && r.leave) {
-          var g = mins(r.leave - now);
-          note = g <= 0 ? 'Gå nu' : 'Gå om ' + g + ' min';
-        } else if (r.delay > 0 && r.metro && r.bus) note = 'Bytet håller ändå';
+        var g = r.leave ? mins(r.leave - now) : null;
+        if (first && g != null && g < 120) note = g <= 0 ? 'Gå nu' : 'Gå om ' + g + ' min';
+        else if (target && r.arrive) note = mins(target - r.arrive) + ' min före';
+        else if (r.delay > 0 && r.metro && r.bus) note = 'Bytet håller ändå';
         return '<button class="trip' + (first ? ' first' : '') + '" data-i="' + i + '">' +
           '<div class="row" style="align-items:baseline;width:100%">' +
             '<div class="col" style="gap:2px"><div class="label">' + (dir === 'work' ? 'Gå hemifrån' : 'Gå från jobbet') + '</div><div class="big">' + t(r.leave) + '</div></div>' +
@@ -483,9 +534,82 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
     $('pin').value = cfg.pin || '';
   }
 
+  // ---------- Tidshjul ----------
+  var ROW = 44;
+  var HOURS = [], MINS = [];
+  for (var hh = 0; hh < 24; hh++) HOURS.push(hh < 10 ? '0' + hh : String(hh));
+  for (var mm = 0; mm < 60; mm += 5) MINS.push(mm < 10 ? '0' + mm : String(mm));
+  var settleTimer = null, fetchTimer = null, programmatic = false;
+
+  function buildWheel(el, vals) {
+    el.innerHTML = '<div class="pad"></div>' + vals.map(function (v, i) {
+      return '<div class="it" role="option" data-i="' + i + '">' + v + '</div>';
+    }).join('') + '<div class="pad"></div>';
+  }
+  function wheelIndex(el) { return Math.max(0, Math.min(el.children.length - 3, Math.round(el.scrollTop / ROW))); }
+  function markWheel(el) {
+    var idx = wheelIndex(el);
+    Array.prototype.forEach.call(el.querySelectorAll('.it'), function (n, i) {
+      n.classList.toggle('on', i === idx);
+      n.setAttribute('aria-selected', String(i === idx));
+    });
+  }
+  function setPicker(hhmm) {
+    var p = String(hhmm).split(':');
+    var h = Number(p[0]), m = Math.round(Number(p[1]) / 5) % 12;
+    programmatic = true;
+    $('wheel-h').scrollTop = h * ROW;
+    $('wheel-m').scrollTop = m * ROW;
+    markWheel($('wheel-h')); markWheel($('wheel-m'));
+    setTimeout(function () { programmatic = false; }, 60);
+    pickHint();
+  }
+  function pickHint() {
+    var tg = targetMs(cfg.arrive[dir], Date.now());
+    var tomorrow = new Date(tg).getDate() !== new Date().getDate();
+    $('pick-hint').textContent = (dir === 'work' ? 'Framme på kontoret ' : 'Framme hemma ') + (tomorrow ? 'i morgon ' : 'i dag ') + cfg.arrive[dir];
+  }
+  function onWheelScroll(e) {
+    var el = e.currentTarget;
+    markWheel(el);
+    if (programmatic) return;
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(function () {
+      var v = HOURS[wheelIndex($('wheel-h'))] + ':' + MINS[wheelIndex($('wheel-m'))];
+      if (v === cfg.arrive[dir]) return;
+      cfg.arrive[dir] = v; save(); pickHint();
+      renderList();
+      clearTimeout(fetchTimer);
+      fetchTimer = setTimeout(fetchData, 350);
+    }, 160);
+  }
+  function onWheelClick(e) {
+    var it = e.target.closest('.it');
+    if (it) e.currentTarget.scrollTo({ top: Number(it.getAttribute('data-i')) * ROW, behavior: 'smooth' });
+  }
+  function onWheelKey(e) {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    var el = e.currentTarget;
+    el.scrollTo({ top: (wheelIndex(el) + (e.key === 'ArrowDown' ? 1 : -1)) * ROW, behavior: 'smooth' });
+  }
+  buildWheel($('wheel-h'), HOURS);
+  buildWheel($('wheel-m'), MINS);
+  ['wheel-h', 'wheel-m'].forEach(function (id) {
+    $(id).addEventListener('scroll', onWheelScroll, { passive: true });
+    $(id).addEventListener('click', onWheelClick);
+    $(id).addEventListener('keydown', onWheelKey);
+  });
+  function showPicker() {
+    renderHeader();
+    if (cfg.mode === 'arrive') requestAnimationFrame(function () { setPicker(cfg.arrive[dir]); });
+  }
+
   // ---------- Händelser ----------
-  $('dir-work').addEventListener('click', function () { if (dir !== 'work') { dir = 'work'; data = null; renderList(); fetchData(); } });
-  $('dir-home').addEventListener('click', function () { if (dir !== 'home') { dir = 'home'; data = null; renderList(); fetchData(); } });
+  $('mode-now').addEventListener('click', function () { if (cfg.mode !== 'now') { cfg.mode = 'now'; save(); showPicker(); renderList(); fetchData(); } });
+  $('mode-arrive').addEventListener('click', function () { if (cfg.mode !== 'arrive') { cfg.mode = 'arrive'; save(); showPicker(); renderList(); fetchData(); } });
+  $('dir-work').addEventListener('click', function () { if (dir !== 'work') { dir = 'work'; showPicker(); renderList(); fetchData(); } });
+  $('dir-home').addEventListener('click', function () { if (dir !== 'home') { dir = 'home'; showPicker(); renderList(); fetchData(); } });
   $('refresh').addEventListener('click', fetchData);
   $('open-settings').addEventListener('click', function () { setDir = dir; renderSettings(); show('settings'); });
   $('set-work').addEventListener('click', function () { setDir = 'work'; renderSettings(); });
@@ -496,7 +620,7 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
   });
   document.addEventListener('click', function (e) {
     var go = e.target.closest('[data-go]');
-    if (go) { show('list'); renderList(); }
+    if (go) { show('list'); showPicker(); renderList(); }
   });
   $('margins').addEventListener('click', function (e) {
     var b = e.target.closest('[data-k]');
@@ -519,7 +643,8 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
   });
   setInterval(function () { if (!$('v-list').hidden && data) renderList(); }, 20000);
 
-  window.__pendel = { buildTrips: buildTrips, demo: demo };
+  window.__pendel = { buildTrips: buildTrips, demo: demo, targetMs: targetMs };
+  showPicker();
   renderList();
   fetchData();
 })();
