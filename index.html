@@ -83,11 +83,17 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
 .track .t1 { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
 .track .t2 { font-size: 34px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; }
 .steps { display: flex; flex-direction: column; background: var(--card); border-radius: 16px; padding: 8px 16px; border: 1px solid var(--line); }
-.stop { display: flex; gap: 12px; align-items: center; padding: 8px 0; }
-.stop .tm { font-family: var(--mono); font-size: 15px; font-weight: 600; width: 48px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.stop .pl { font-size: 15px; font-weight: 600; }
+.stop { display: flex; gap: 12px; align-items: flex-start; padding: 8px 0; }
+.stop .tm { width: 60px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .stop .sb { font-size: 13px; color: var(--muted); }
-.gap { padding: 6px 0 6px 60px; }
+.stop.dep { padding-top: 12px; }
+.stop.dep .tm { font-size: 22px; font-weight: 700; line-height: 1.1; letter-spacing: -0.01em; }
+.stop.dep .pl { font-size: 16px; font-weight: 600; line-height: 1.35; }
+.stop.arr { padding: 2px 0 8px; }
+.stop.arr .tm { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--muted); padding-top: 1px; }
+.stop.arr .pl { font-size: 14px; font-weight: 500; color: var(--muted); }
+.stop.arr .sb { font-size: 12px; }
+.gap { padding: 6px 0 6px 72px; }
 .gap span { font-family: var(--mono); font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 10px; }
 
 .panel { display: flex; flex-direction: column; background: var(--card); border-radius: 16px; padding: 4px 16px; border: 1px solid var(--line); }
@@ -158,6 +164,10 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
         <h1>Mina marginaler</h1>
         <div class="sub">Hur lång tid du behöver i varje steg. Appen väljer bara anslutningar där bytet håller.</div>
       </div>
+      <div class="seg" role="group" aria-label="Marginaler för">
+        <button id="set-work" aria-pressed="true">Till jobbet</button>
+        <button id="set-home" aria-pressed="false">Hem</button>
+      </div>
       <div class="panel" id="margins"></div>
       <div class="panel">
         <label class="setrow" for="hide-fast">
@@ -185,11 +195,24 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
   var TZ = 'Europe/Stockholm';
 
   // ---------- Lagring ----------
-  var DEFAULTS = { walkHome: 5, changeC: 10, changeV: 5, walkWork: 3, hideFast: false, pin: '' };
+  var KEYS = ['walkHome', 'changeC', 'changeV', 'walkWork'];
+  var BASE = { walkHome: 5, changeC: 10, changeV: 5, walkWork: 3 };
   function load() {
-    try { var s = JSON.parse(localStorage.getItem('pendel') || '{}'); return Object.assign({}, DEFAULTS, s); }
-    catch (e) { return Object.assign({}, DEFAULTS); }
+    var s = {};
+    try { s = JSON.parse(localStorage.getItem('pendel') || '{}') || {}; } catch (e) {}
+    var old = {};
+    KEYS.forEach(function (k) { if (typeof s[k] === 'number') old[k] = s[k]; });
+    var m = s.margins || {};
+    return {
+      hideFast: !!s.hideFast,
+      pin: s.pin || '',
+      margins: {
+        work: Object.assign({}, BASE, old, m.work),
+        home: Object.assign({}, BASE, old, m.home)
+      }
+    };
   }
+  function marginsFor(d) { return Object.assign({ hideFast: cfg.hideFast }, cfg.margins[d]); }
   function save() { try { localStorage.setItem('pendel', JSON.stringify(cfg)); } catch (e) {} }
   var cfg = load();
 
@@ -340,7 +363,7 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
       $('updated').textContent = '';
       return;
     }
-    trips = buildTrips(data, cfg, now).slice(0, 4);
+    trips = buildTrips(data, marginsFor(dir), now).slice(0, 4);
     if (!trips.length) {
       box.innerHTML = '<div class="empty">Inga tåg de närmaste timmarna.<br>Tryck på uppdatera eller byt riktning.</div>';
     } else {
@@ -381,31 +404,40 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
       var have = mins(ms);
       return '<div class="gap"><span class="' + (have >= need ? 'ok' : 'warn') + '">Byte ' + have + ' min · din marginal ' + need + '</span></div>';
     };
-    var stop = function (time, place, sub) {
-      return '<div class="stop"><div class="tm">' + t(time) + '</div><div class="col" style="gap:1px"><div class="pl">' + esc(place) + '</div><div class="sb">' + esc(sub) + '</div></div></div>';
+    var m = cfg.margins[dir];
+    // Avgång: stor tid, fet plats och en linjeetikett. Ankomst: liten, dämpad tid och plats.
+    var dep = function (time, place, chip, sub, chipCls) {
+      return '<div class="stop dep"><div class="tm">' + t(time) + '</div><div class="col" style="gap:4px">' +
+        '<div class="pl">' + esc(place) + '</div>' +
+        (chip ? '<div class="chips"><span class="chip' + (chipCls ? ' ' + chipCls : '') + '">' + esc(chip) + '</span>' + (sub ? '<span class="sb">' + esc(sub) + '</span>' : '') + '</div>' : (sub ? '<div class="sb">' + esc(sub) + '</div>' : '')) +
+        '</div></div>';
+    };
+    var arr = function (time, place, sub) {
+      return '<div class="stop arr"><div class="tm">' + t(time) + '</div><div class="col" style="gap:1px"><div class="pl">' + esc(place) + '</div>' + (sub ? '<div class="sb">' + esc(sub) + '</div>' : '') + '</div></div>';
     };
     var trainName = (tr.product || 'Tåg') + ' ' + tr.id;
+    var trainChip = 'Tåg' + (tr.from.track ? ' · spår ' + tr.from.track : '');
     var steps = [];
     if (work) {
       var me = r.metro, bu = r.bus;
-      steps.push(stop(r.leave, 'Hemma', 'Gå ' + cfg.walkHome + ' min'));
-      if (me) steps.push(stop(me.from.rt, me.from.name, 'T' + me.line + ' mot ' + me.dest), stop(me.to.rt, me.to.name, 'Gå till spår ' + (tr.from.track || '?')));
-      steps.push(gap(r.gaps[0], cfg.changeC, 'T-banan'));
-      steps.push(stop(tr.from.rt, 'Stockholm C', trainName + (tr.from.track ? ', spår ' + tr.from.track : '')));
-      steps.push(stop(tr.to.rt, 'Västerås C', bu ? 'Gå till ' + bu.from.name : 'Gå till bussen'));
-      steps.push(gap(r.gaps[1], cfg.changeV, 'Bussen'));
-      if (bu) steps.push(stop(bu.from.rt, bu.from.name, 'Buss ' + bu.line + ' mot ' + bu.dest), stop(bu.to.rt, bu.to.name, 'Gå ' + cfg.walkWork + ' min till ABB Robotics'));
-      steps.push(stop(r.arrive, 'Kontoret', ''));
+      steps.push(dep(r.leave, 'Gå hemifrån', '', 'Gå ' + m.walkHome + ' min till T-banan'));
+      if (me) steps.push(dep(me.from.rt, me.from.name, 'T' + me.line, 'mot ' + me.dest), arr(me.to.rt, me.to.name, 'Gå till spår ' + (tr.from.track || '?')));
+      steps.push(gap(r.gaps[0], m.changeC, 'T-banan'));
+      steps.push(dep(tr.from.rt, 'Stockholm C', trainChip, trainName, 'dark'));
+      steps.push(arr(tr.to.rt, 'Västerås C', bu && bu.from.platform ? 'Gå till bussen, läge ' + bu.from.platform : 'Gå till bussen'));
+      steps.push(gap(r.gaps[1], m.changeV, 'Bussen'));
+      if (bu) steps.push(dep(bu.from.rt, bu.from.name, 'Buss ' + bu.line + (bu.from.platform ? ' · läge ' + bu.from.platform : ''), 'mot Finnslätten'), arr(bu.to.rt, bu.to.name, 'Gå ' + m.walkWork + ' min till ABB Robotics'));
+      steps.push(arr(r.arrive, 'Framme på kontoret', ''));
     } else {
       var bu2 = r.bus, me2 = r.metro;
-      steps.push(stop(r.leave, 'Kontoret', 'Gå ' + cfg.walkWork + ' min'));
-      if (bu2) steps.push(stop(bu2.from.rt, bu2.from.name, 'Buss ' + bu2.line + ' mot ' + bu2.dest), stop(bu2.to.rt, bu2.to.name, 'Gå till spår ' + (tr.from.track || '?')));
-      steps.push(gap(r.gaps[0], cfg.changeV, 'Bussen'));
-      steps.push(stop(tr.from.rt, 'Västerås C', trainName + (tr.from.track ? ', spår ' + tr.from.track : '')));
-      steps.push(stop(tr.to.rt, 'Stockholm C', 'Gå till T-Centralen'));
-      steps.push(gap(r.gaps[1], cfg.changeC, 'T-banan'));
-      if (me2) steps.push(stop(me2.from.rt, me2.from.name, 'T' + me2.line + ' mot ' + me2.dest), stop(me2.to.rt, me2.to.name, 'Gå ' + cfg.walkHome + ' min hem'));
-      steps.push(stop(r.arrive, 'Hemma', ''));
+      steps.push(dep(r.leave, 'Gå från kontoret', '', 'Gå ' + m.walkWork + ' min till bussen'));
+      if (bu2) steps.push(dep(bu2.from.rt, bu2.from.name, 'Buss ' + bu2.line, 'mot ' + bu2.dest), arr(bu2.to.rt, bu2.to.name, 'Gå till spår ' + (tr.from.track || '?')));
+      steps.push(gap(r.gaps[0], m.changeV, 'Bussen'));
+      steps.push(dep(tr.from.rt, 'Västerås C', trainChip, trainName, 'dark'));
+      steps.push(arr(tr.to.rt, 'Stockholm C', 'Gå till T-Centralen'));
+      steps.push(gap(r.gaps[1], m.changeC, 'T-banan'));
+      if (me2) steps.push(dep(me2.from.rt, me2.from.name, 'T' + me2.line, 'mot ' + me2.dest), arr(me2.to.rt, me2.to.name, 'Gå ' + m.walkHome + ' min hem'));
+      steps.push(arr(r.arrive, 'Framme hemma', ''));
     }
     var devs = tr.deviations && tr.deviations.length ? '<div class="banner warn">' + tr.deviations.map(esc).join(' · ') + '</div>' : '';
     $('detail').innerHTML =
@@ -422,17 +454,29 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
     show('detail');
   }
 
-  var MARGINS = [
-    ['walkHome', 'Hem ↔ Hammarbyhöjden', 'Gångtid till och från T-banan'],
-    ['changeC', 'T-Centralen ↔ tåget', 'Byte på Centralen'],
-    ['changeV', 'Västerås C ↔ bussen', 'Byte i Västerås'],
-    ['walkWork', 'Finnslätten ↔ kontoret', 'Gångtid från hållplatsen']
-  ];
+  var MARGINS = {
+    work: [
+      ['walkHome', 'Hem → Hammarbyhöjden', 'Gångtid till T-banan'],
+      ['changeC', 'T-Centralen → tåget', 'Byte till regionaltågets spår'],
+      ['changeV', 'Västerås C → buss 4', 'Byte till bussen'],
+      ['walkWork', 'Finnslätten → kontoret', 'Gångtid från hållplatsen']
+    ],
+    home: [
+      ['walkWork', 'Kontoret → Finnslätten', 'Gångtid till hållplatsen'],
+      ['changeV', 'Buss 4 → tåget', 'Byte i Västerås'],
+      ['changeC', 'Tåget → T-Centralen', 'Byte på Centralen'],
+      ['walkHome', 'Hammarbyhöjden → hem', 'Gångtid från T-banan']
+    ]
+  };
+  var setDir = 'work';
   function renderSettings() {
-    $('margins').innerHTML = MARGINS.map(function (m) {
+    $('set-work').setAttribute('aria-pressed', String(setDir === 'work'));
+    $('set-home').setAttribute('aria-pressed', String(setDir === 'home'));
+    var vals = cfg.margins[setDir];
+    $('margins').innerHTML = MARGINS[setDir].map(function (m) {
       return '<div class="setrow"><div class="col" style="gap:1px"><div style="font-weight:600">' + m[1] + '</div><div class="small">' + m[2] + '</div></div>' +
         '<div class="stepper"><button data-k="' + m[0] + '" data-d="-1" aria-label="Minska ' + m[1] + '">−</button>' +
-        '<output id="out-' + m[0] + '">' + cfg[m[0]] + ' min</output>' +
+        '<output id="out-' + m[0] + '">' + vals[m[0]] + ' min</output>' +
         '<button data-k="' + m[0] + '" data-d="1" aria-label="Öka ' + m[1] + '">+</button></div></div>';
     }).join('');
     $('hide-fast').checked = !!cfg.hideFast;
@@ -443,7 +487,9 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
   $('dir-work').addEventListener('click', function () { if (dir !== 'work') { dir = 'work'; data = null; renderList(); fetchData(); } });
   $('dir-home').addEventListener('click', function () { if (dir !== 'home') { dir = 'home'; data = null; renderList(); fetchData(); } });
   $('refresh').addEventListener('click', fetchData);
-  $('open-settings').addEventListener('click', function () { renderSettings(); show('settings'); });
+  $('open-settings').addEventListener('click', function () { setDir = dir; renderSettings(); show('settings'); });
+  $('set-work').addEventListener('click', function () { setDir = 'work'; renderSettings(); });
+  $('set-home').addEventListener('click', function () { setDir = 'home'; renderSettings(); });
   $('trips').addEventListener('click', function (e) {
     var b = e.target.closest('[data-i]');
     if (b) { selected = Number(b.getAttribute('data-i')); renderDetail(); }
@@ -455,9 +501,9 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
   $('margins').addEventListener('click', function (e) {
     var b = e.target.closest('[data-k]');
     if (!b) return;
-    var k = b.getAttribute('data-k');
-    cfg[k] = Math.max(0, Math.min(60, cfg[k] + Number(b.getAttribute('data-d'))));
-    $('out-' + k).textContent = cfg[k] + ' min';
+    var k = b.getAttribute('data-k'), vals = cfg.margins[setDir];
+    vals[k] = Math.max(0, Math.min(60, vals[k] + Number(b.getAttribute('data-d'))));
+    $('out-' + k).textContent = vals[k] + ' min';
     save();
   });
   $('hide-fast').addEventListener('change', function (e) { cfg.hideFast = e.target.checked; save(); });
