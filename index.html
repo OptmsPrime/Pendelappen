@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pendel">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#F4F3EF">
+<title>Pendelappen</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* En kolumn i telefonbredd: rubrik, riktningsväxel, reskort. Detalj och inställningar ersätter listan. */
+:root {
+  --bg: #F4F3EF; --card: #FFFFFF; --fg: #16181D; --muted: #5A5F69; --line: #DEDCD5; --soft: #E7E5DE; --hair: #ECEAE4;
+  --ink: #16181D; --on-ink: #FFFFFF; --on-ink-muted: #C9CBD1; --accent: #C2410C;
+  --ok-bg: #DCFCE7; --ok-fg: #166534; --warn-bg: #FFEDD5; --warn-fg: #9A3412; --bad-bg: #FEE2E2; --bad-fg: #991B1B;
+  --sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --mono: 'Azeret Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121417; --card: #1C1F24; --fg: #EEEDE8; --muted: #9A9FA8; --line: #2C3038; --soft: #2A2E35; --hair: #262A31;
+  --ink: #EEEDE8; --on-ink: #121417; --on-ink-muted: #4A4F58; --accent: #EA6A33;
+  --ok-bg: #12351F; --ok-fg: #86EFAC; --warn-bg: #3D2312; --warn-fg: #FDBA74; --bad-bg: #3F1616; --bad-fg: #FCA5A5;
+  color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121417; --card: #1C1F24; --fg: #EEEDE8; --muted: #9A9FA8; --line: #2C3038; --soft: #2A2E35; --hair: #262A31;
+  --ink: #EEEDE8; --on-ink: #121417; --on-ink-muted: #4A4F58; --accent: #EA6A33;
+  --ok-bg: #12351F; --ok-fg: #86EFAC; --warn-bg: #3D2312; --warn-fg: #FDBA74; --bad-bg: #3F1616; --bad-fg: #FCA5A5;
+  color-scheme: dark }
+
+* { box-sizing: border-box; }
+html, body { background: var(--bg); color: var(--fg); }
+body { margin: 0; font-family: var(--sans); font-size: 15px; -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wrap { max-width: 480px; margin: 0 auto; padding-inline: 16px; padding-block: 24px 32px; display: flex; flex-direction: column; gap: 20px; }
+.mono { font-family: var(--mono); }
+.label { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.eyebrow { font-family: var(--mono); font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: balance; }
+.sub { font-size: 15px; color: var(--muted); }
+.row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+
+.iconbtn { width: 44px; height: 44px; border-radius: 22px; background: var(--card); border: 1px solid var(--line); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.iconbtn svg { stroke: var(--fg); }
+.iconbtn.spin svg { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .iconbtn.spin svg { animation: none; } }
+
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--soft); border-radius: 12px; padding: 4px; }
+.seg button { height: 44px; border: none; border-radius: 9px; background: transparent; font-weight: 500; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); font-weight: 600; }
+
+.list { display: flex; flex-direction: column; gap: 12px; }
+.trip { display: flex; flex-direction: column; gap: 14px; background: var(--card); border-radius: 16px; padding: 16px; border: 1px solid var(--line); text-align: left; width: 100%; }
+.trip.first { border: 2px solid var(--ink); padding: 15px; }
+.big { font-size: 44px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.mid { font-family: var(--mono); font-size: 20px; font-weight: 600; }
+.chips { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-family: var(--mono); font-size: 12px; }
+.chip { background: var(--soft); border-radius: 6px; padding: 4px 7px; font-weight: 600; }
+.chip.dark { background: var(--ink); color: var(--on-ink); }
+.chip.gone { text-decoration: line-through; }
+.sep { color: var(--muted); }
+.foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
+.pill { border-radius: 999px; padding: 4px 10px; font-weight: 600; white-space: nowrap; }
+.ok { background: var(--ok-bg); color: var(--ok-fg); }
+.warn { background: var(--warn-bg); color: var(--warn-fg); }
+.bad { background: var(--bad-bg); color: var(--bad-fg); }
+.note { color: var(--muted); text-align: right; }
+
+.banner { border-radius: 12px; padding: 12px 14px; font-size: 13px; line-height: 1.45; }
+.banner b { font-weight: 600; }
+.empty { background: var(--card); border: 1px dashed var(--line); border-radius: 16px; padding: 24px 16px; text-align: center; color: var(--muted); line-height: 1.5; }
+.status { font-family: var(--mono); font-size: 12px; color: var(--muted); text-align: center; }
+
+.back { display: inline-flex; align-items: center; gap: 6px; height: 44px; background: none; border: none; padding: 0; font-weight: 500; align-self: flex-start; }
+.back svg { stroke: var(--fg); }
+.trackcard { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--ink); color: var(--on-ink); border-radius: 16px; padding: 16px 18px; }
+.trackcard .label { color: var(--on-ink-muted); }
+.track { display: flex; flex-direction: column; align-items: center; background: var(--accent); color: #FFFFFF; border-radius: 12px; padding: 6px 14px; min-width: 64px; }
+.track .t1 { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.track .t2 { font-size: 34px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; }
+.steps { display: flex; flex-direction: column; background: var(--card); border-radius: 16px; padding: 8px 16px; border: 1px solid var(--line); }
+.stop { display: flex; gap: 12px; align-items: center; padding: 8px 0; }
+.stop .tm { font-family: var(--mono); font-size: 15px; font-weight: 600; width: 48px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.stop .pl { font-size: 15px; font-weight: 600; }
+.stop .sb { font-size: 13px; color: var(--muted); }
+.gap { padding: 6px 0 6px 60px; }
+.gap span { font-family: var(--mono); font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 10px; }
+
+.panel { display: flex; flex-direction: column; background: var(--card); border-radius: 16px; padding: 4px 16px; border: 1px solid var(--line); }
+.setrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--hair); }
+.setrow:last-child { border-bottom: none; }
+.stepper { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.stepper button { width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); font-size: 20px; font-weight: 600; }
+.stepper output { font-family: var(--mono); font-size: 15px; font-weight: 600; width: 56px; text-align: center; }
+.check { width: 24px; height: 24px; accent-color: var(--ink); flex-shrink: 0; }
+.field { width: 100%; height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); padding: 0 12px; font-family: var(--mono); font-size: 16px; }
+.small { font-size: 13px; color: var(--muted); line-height: 1.45; }
+.small a { color: var(--fg); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <!-- LISTA -->
+  <section id="v-list">
+    <div class="wrap" style="padding:0">
+      <div class="row">
+        <div class="col">
+          <div class="eyebrow" id="today"></div>
+          <h1 id="title">Till jobbet</h1>
+          <div class="sub" id="route">Hammarbyhöjden → Finnslätten</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="iconbtn" id="refresh" aria-label="Uppdatera">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"></path><path d="M20 4v7h-7"></path></svg>
+          </button>
+          <button class="iconbtn" id="open-settings" aria-label="Mina marginaler">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"></path><circle cx="16" cy="6" r="2"></circle><circle cx="10" cy="12" r="2"></circle><circle cx="18" cy="18" r="2"></circle></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="seg" role="group" aria-label="Riktning">
+        <button id="dir-work" aria-pressed="true">Till jobbet</button>
+        <button id="dir-home" aria-pressed="false">Hem</button>
+      </div>
+
+      <div id="banner" hidden></div>
+      <div class="list" id="trips"></div>
+      <div class="status" id="updated"></div>
+    </div>
+  </section>
+
+  <!-- DETALJ -->
+  <section id="v-detail" hidden>
+    <div class="wrap" style="padding:0;gap:18px">
+      <button class="back" data-go="list">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+        Alla alternativ
+      </button>
+      <div id="detail"></div>
+    </div>
+  </section>
+
+  <!-- INSTÄLLNINGAR -->
+  <section id="v-settings" hidden>
+    <div class="wrap" style="padding:0;gap:18px">
+      <button class="back" data-go="list">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+        Klar
+      </button>
+      <div class="col">
+        <h1>Mina marginaler</h1>
+        <div class="sub">Hur lång tid du behöver i varje steg. Appen väljer bara anslutningar där bytet håller.</div>
+      </div>
+      <div class="panel" id="margins"></div>
+      <div class="panel">
+        <label class="setrow" for="hide-fast">
+          <span class="col" style="gap:1px">
+            <span style="font-weight:600">Dölj SJ Snabbtåg</span>
+            <span class="small">Visar bara regionaltåg</span>
+          </span>
+          <input type="checkbox" class="check" id="hide-fast">
+        </label>
+      </div>
+      <div class="panel" style="padding:14px 16px;gap:10px">
+        <label for="pin" style="font-weight:600">PIN-kod</label>
+        <input class="field" id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="Samma som APP_PIN på Vercel">
+        <div class="small">Sparas bara i den här telefonen. Felsökning: <a href="api/debug" id="debug-link" target="_blank" rel="noopener">visa hållplatser och nyckelstatus</a></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var MIN = 60000;
+  var TZ = 'Europe/Stockholm';
+
+  // ---------- Lagring ----------
+  var DEFAULTS = { walkHome: 5, changeC: 10, changeV: 5, walkWork: 3, hideFast: false, pin: '' };
+  function load() {
+    try { var s = JSON.parse(localStorage.getItem('pendel') || '{}'); return Object.assign({}, DEFAULTS, s); }
+    catch (e) { return Object.assign({}, DEFAULTS); }
+  }
+  function save() { try { localStorage.setItem('pendel', JSON.stringify(cfg)); } catch (e) {} }
+  var cfg = load();
+
+  // ---------- Tid ----------
+  var hm = new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
+  var dayFmt = new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'short' });
+  var hourFmt = new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, hour: 'numeric', hourCycle: 'h23' });
+  function t(ms) { return ms == null ? '–' : hm.format(new Date(ms)); }
+  function mins(ms) { return Math.round(ms / MIN); }
+  function dur(ms) { var m = mins(ms); return m >= 60 ? Math.floor(m / 60) + ' tim ' + (m % 60) + ' min' : m + ' min'; }
+
+  // ---------- Bygg resor (ren funktion, testbar) ----------
+  function latest(list, ok) { var best = null; list.forEach(function (x) { if (!x.canceled && ok(x) && (!best || x.from.rt > best.from.rt)) best = x; }); return best; }
+  function earliest(list, ok) { var best = null; list.forEach(function (x) { if (!x.canceled && ok(x) && (!best || x.from.rt < best.from.rt)) best = x; }); return best; }
+
+  function buildTrips(d, m, now) {
+    var out = [];
+    (d.trains || []).forEach(function (tr) {
+      if (m.hideFast && /snabbt|x ?2000/i.test(tr.product || '')) return;
+      var dep = tr.from.rt, arr = tr.to.rt, metro, bus, leave, arrive, gaps;
+      if (d.dir === 'work') {
+        metro = latest(d.metro || [], function (x) { return x.to.rt <= dep - m.changeC * MIN; });
+        bus = earliest(d.bus || [], function (x) { return x.from.rt >= arr + m.changeV * MIN; });
+        leave = metro ? metro.from.rt - m.walkHome * MIN : null;
+        arrive = bus ? bus.to.rt + m.walkWork * MIN : null;
+        gaps = [metro ? dep - metro.to.rt : null, bus ? bus.from.rt - arr : null];
+      } else {
+        bus = latest(d.bus || [], function (x) { return x.to.rt <= dep - m.changeV * MIN; });
+        metro = earliest(d.metro || [], function (x) { return x.from.rt >= arr + m.changeC * MIN; });
+        leave = bus ? bus.from.rt - m.walkWork * MIN : null;
+        arrive = metro ? metro.to.rt + m.walkHome * MIN : null;
+        gaps = [bus ? dep - bus.to.rt : null, metro ? metro.from.rt - arr : null];
+      }
+      var firstStep = d.dir === 'work' ? metro : bus;
+      var missed = firstStep ? firstStep.from.rt < now : dep < now;
+      if (missed) return;
+      var delay = mins(tr.from.rt - tr.from.sched);
+      var status;
+      if (tr.canceled) status = { text: 'Inställt', cls: 'bad' };
+      else if (!metro || !bus) status = { text: 'Anslutning saknas', cls: 'warn' };
+      else if (delay > 0) status = { text: 'Tåget +' + delay + ' min', cls: 'warn' };
+      else status = { text: 'I tid', cls: 'ok' };
+      out.push({ train: tr, metro: metro, bus: bus, leave: leave, arrive: arrive, gaps: gaps, delay: delay, status: status });
+    });
+    return out;
+  }
+
+  // ---------- Exempeldata (när appen inte når sitt API) ----------
+  function demo(dir, now) {
+    var base = Math.floor(now / (30 * MIN)) * 30 * MIN;
+    var tr = [], me = [], bu = [];
+    for (var i = 0; i < 5; i++) {
+      var dep = base + (i * 30 + 25) * MIN, late = i === 1 ? 4 * MIN : 0;
+      tr.push({ id: String(870 + i * 2), product: 'SJ Regional', operator: 'SJ', canceled: false, deviations: [],
+        from: { sched: dep, rt: dep + late, track: dir === 'work' ? String(13 + (i % 2)) : '3' },
+        to: { sched: dep + 53 * MIN, rt: dep + 53 * MIN + late, track: '2' } });
+    }
+    for (var j = -1; j < 30; j++) {
+      var md = base + j * 5 * MIN;
+      me.push(dir === 'work'
+        ? { line: '17', dest: 'Åkeshov', canceled: false, from: { sched: md, rt: md, name: 'Hammarbyhöjden' }, to: { sched: md + 12 * MIN, rt: md + 12 * MIN, name: 'T-Centralen' } }
+        : { line: '17', dest: 'Skarpnäck', canceled: false, from: { sched: md, rt: md, name: 'T-Centralen' }, to: { sched: md + 12 * MIN, rt: md + 12 * MIN, name: 'Hammarbyhöjden' } });
+    }
+    for (var k = -1; k < 24; k++) {
+      var bd = base + (k * 10 + 3) * MIN;
+      bu.push(dir === 'work'
+        ? { line: '4', dest: 'Finnslätten', canceled: false, from: { sched: bd, rt: bd, name: 'Västerås Centralstation' }, to: { sched: bd + 11 * MIN, rt: bd + 11 * MIN, name: 'Finnslätten' } }
+        : { line: '4', dest: 'Centrum', canceled: false, from: { sched: bd, rt: bd, name: 'Finnslätten' }, to: { sched: bd + 11 * MIN, rt: bd + 11 * MIN, name: 'Västerås Centralstation' } });
+    }
+    return { dir: dir, generatedAt: now, trains: tr, metro: me, bus: bu, warnings: [], demo: true };
+  }
+
+  // ---------- Hämta ----------
+  var dir = Number(hourFmt.format(new Date())) < 12 ? 'work' : 'home';
+  var data = null, trips = [], selected = 0, loading = false, problem = null;
+
+  function fetchData() {
+    if (loading) return;
+    loading = true; setSpin(true);
+    var want = dir;
+    var ctrl = window.AbortController ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 20000);
+    fetch('api/trips?dir=' + want, { headers: { 'x-app-pin': cfg.pin || '' }, signal: ctrl ? ctrl.signal : undefined })
+      .then(function (r) {
+        var isJson = (r.headers.get('content-type') || '').indexOf('json') >= 0;
+        if (!isJson) throw { demo: true };
+        return r.json().then(function (j) {
+          if (r.status === 401) throw { pin: true, msg: j.error };
+          if (!r.ok) throw { msg: j.error || ('Fel ' + r.status) };
+          return j;
+        });
+      })
+      .then(function (j) { problem = null; data = j; })
+      .catch(function (e) {
+        if (e && e.pin) { problem = { kind: 'pin', msg: e.msg }; data = null; }
+        else if (e && e.msg) { problem = { kind: 'error', msg: e.msg }; }
+        else if (e && e.name === 'AbortError') { problem = { kind: 'error', msg: 'Ingen kontakt med servern. Försök igen.' }; }
+        else { problem = null; data = demo(want, Date.now()); }
+      })
+      .then(function () {
+        clearTimeout(timer);
+        loading = false; setSpin(false);
+        if (want !== dir) return fetchData();
+        renderList();
+      });
+  }
+
+  // ---------- Rendering ----------
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function setSpin(on) { $('refresh').classList.toggle('spin', on); }
+
+  function show(view) {
+    ['list', 'detail', 'settings'].forEach(function (v) { $('v-' + v).hidden = v !== view; });
+    window.scrollTo(0, 0);
+  }
+
+  function renderHeader() {
+    $('today').textContent = dayFmt.format(new Date());
+    $('title').textContent = dir === 'work' ? 'Till jobbet' : 'Hem';
+    $('route').textContent = dir === 'work' ? 'Hammarbyhöjden → Finnslätten' : 'Finnslätten → Hammarbyhöjden';
+    $('dir-work').setAttribute('aria-pressed', String(dir === 'work'));
+    $('dir-home').setAttribute('aria-pressed', String(dir === 'home'));
+  }
+
+  function renderList() {
+    renderHeader();
+    var now = Date.now();
+    var b = $('banner');
+    b.hidden = true; b.className = '';
+    if (problem && problem.kind === 'pin') {
+      b.hidden = false; b.className = 'banner warn';
+      b.innerHTML = '<b>PIN-kod behövs.</b> Skriv in den under Mina marginaler.';
+    } else if (problem) {
+      b.hidden = false; b.className = 'banner bad';
+      b.innerHTML = '<b>Kunde inte hämta resor.</b> ' + esc(problem.msg);
+    } else if (data && data.demo) {
+      b.hidden = false; b.className = 'banner warn';
+      b.innerHTML = '<b>Exempeldata.</b> Riktiga avgångar visas när appen ligger på Vercel med dina nycklar.';
+    } else if (data && data.warnings && data.warnings.length) {
+      b.hidden = false; b.className = 'banner warn';
+      b.innerHTML = '<b>Delvis data.</b> ' + data.warnings.map(esc).join(' · ');
+    }
+
+    var box = $('trips');
+    if (!data || data.dir !== dir) {
+      box.innerHTML = problem ? '' : '<div class="empty">Hämtar avgångar…</div>';
+      $('updated').textContent = '';
+      return;
+    }
+    trips = buildTrips(data, cfg, now).slice(0, 4);
+    if (!trips.length) {
+      box.innerHTML = '<div class="empty">Inga tåg de närmaste timmarna.<br>Tryck på uppdatera eller byt riktning.</div>';
+    } else {
+      box.innerHTML = trips.map(function (r, i) {
+        var tr = r.train, first = i === 0;
+        var a = dir === 'work' ? r.metro : r.bus, c = dir === 'work' ? r.bus : r.metro;
+        var aChip = dir === 'work' ? 'T' + esc(a ? a.line : '17') + ' ' + t(a && a.from.rt) : 'Buss ' + esc(a ? a.line : '4') + ' ' + t(a && a.from.rt);
+        var cChip = dir === 'work' ? 'Buss ' + esc(c ? c.line : '4') + ' ' + t(c && c.from.rt) : 'T' + esc(c ? c.line : '17') + ' ' + t(c && c.from.rt);
+        var trainChip = 'Tåg ' + t(tr.from.rt) + (tr.from.track ? ' · spår ' + esc(tr.from.track) : '');
+        var note = '';
+        if (first && r.leave) {
+          var g = mins(r.leave - now);
+          note = g <= 0 ? 'Gå nu' : 'Gå om ' + g + ' min';
+        } else if (r.delay > 0 && r.metro && r.bus) note = 'Bytet håller ändå';
+        return '<button class="trip' + (first ? ' first' : '') + '" data-i="' + i + '">' +
+          '<div class="row" style="align-items:baseline;width:100%">' +
+            '<div class="col" style="gap:2px"><div class="label">' + (dir === 'work' ? 'Gå hemifrån' : 'Gå från jobbet') + '</div><div class="big">' + t(r.leave) + '</div></div>' +
+            '<div class="col" style="gap:2px;align-items:flex-end"><div class="label">Framme</div><div class="mid">' + t(r.arrive) + '</div></div>' +
+          '</div>' +
+          '<div class="chips">' +
+            '<span class="chip">' + aChip + '</span><span class="sep" aria-hidden="true">›</span>' +
+            '<span class="chip dark' + (tr.canceled ? ' gone' : '') + '">' + trainChip + '</span><span class="sep" aria-hidden="true">›</span>' +
+            '<span class="chip">' + cChip + '</span>' +
+          '</div>' +
+          '<div class="foot" style="width:100%"><span class="pill ' + r.status.cls + '">' + esc(r.status.text) + '</span><span class="note">' + esc(note) + '</span></div>' +
+        '</button>';
+      }).join('');
+    }
+    $('updated').textContent = (data.demo ? 'Exempeldata · ' : 'Uppdaterad ') + t(data.generatedAt);
+  }
+
+  function renderDetail() {
+    var r = trips[selected];
+    if (!r) return show('list');
+    var tr = r.train, work = dir === 'work';
+    var gap = function (ms, need, label) {
+      if (ms == null) return '<div class="gap"><span class="warn">' + label + ': anslutning saknas</span></div>';
+      var have = mins(ms);
+      return '<div class="gap"><span class="' + (have >= need ? 'ok' : 'warn') + '">Byte ' + have + ' min · din marginal ' + need + '</span></div>';
+    };
+    var stop = function (time, place, sub) {
+      return '<div class="stop"><div class="tm">' + t(time) + '</div><div class="col" style="gap:1px"><div class="pl">' + esc(place) + '</div><div class="sb">' + esc(sub) + '</div></div></div>';
+    };
+    var trainName = (tr.product || 'Tåg') + ' ' + tr.id;
+    var steps = [];
+    if (work) {
+      var me = r.metro, bu = r.bus;
+      steps.push(stop(r.leave, 'Hemma', 'Gå ' + cfg.walkHome + ' min'));
+      if (me) steps.push(stop(me.from.rt, me.from.name, 'T' + me.line + ' mot ' + me.dest), stop(me.to.rt, me.to.name, 'Gå till spår ' + (tr.from.track || '?')));
+      steps.push(gap(r.gaps[0], cfg.changeC, 'T-banan'));
+      steps.push(stop(tr.from.rt, 'Stockholm C', trainName + (tr.from.track ? ', spår ' + tr.from.track : '')));
+      steps.push(stop(tr.to.rt, 'Västerås C', bu ? 'Gå till ' + bu.from.name : 'Gå till bussen'));
+      steps.push(gap(r.gaps[1], cfg.changeV, 'Bussen'));
+      if (bu) steps.push(stop(bu.from.rt, bu.from.name, 'Buss ' + bu.line + ' mot ' + bu.dest), stop(bu.to.rt, bu.to.name, 'Gå ' + cfg.walkWork + ' min till ABB Robotics'));
+      steps.push(stop(r.arrive, 'Kontoret', ''));
+    } else {
+      var bu2 = r.bus, me2 = r.metro;
+      steps.push(stop(r.leave, 'Kontoret', 'Gå ' + cfg.walkWork + ' min'));
+      if (bu2) steps.push(stop(bu2.from.rt, bu2.from.name, 'Buss ' + bu2.line + ' mot ' + bu2.dest), stop(bu2.to.rt, bu2.to.name, 'Gå till spår ' + (tr.from.track || '?')));
+      steps.push(gap(r.gaps[0], cfg.changeV, 'Bussen'));
+      steps.push(stop(tr.from.rt, 'Västerås C', trainName + (tr.from.track ? ', spår ' + tr.from.track : '')));
+      steps.push(stop(tr.to.rt, 'Stockholm C', 'Gå till T-Centralen'));
+      steps.push(gap(r.gaps[1], cfg.changeC, 'T-banan'));
+      if (me2) steps.push(stop(me2.from.rt, me2.from.name, 'T' + me2.line + ' mot ' + me2.dest), stop(me2.to.rt, me2.to.name, 'Gå ' + cfg.walkHome + ' min hem'));
+      steps.push(stop(r.arrive, 'Hemma', ''));
+    }
+    var devs = tr.deviations && tr.deviations.length ? '<div class="banner warn">' + tr.deviations.map(esc).join(' · ') + '</div>' : '';
+    $('detail').innerHTML =
+      '<div style="display:flex;flex-direction:column;gap:18px">' +
+      '<div class="row" style="align-items:flex-end">' +
+        '<div class="col" style="gap:2px"><div class="label">' + (work ? 'Gå hemifrån' : 'Gå från jobbet') + '</div><div class="big" style="font-size:48px">' + t(r.leave) + '</div></div>' +
+        '<div class="col" style="gap:2px;align-items:flex-end"><div class="label">Framme ' + t(r.arrive) + '</div><div class="label">' + (r.leave && r.arrive ? dur(r.arrive - r.leave) : '') + '</div></div>' +
+      '</div>' +
+      '<div class="trackcard"><div class="col" style="gap:2px"><div class="label">' + esc(trainName) + ' ' + t(tr.from.rt) + (r.delay > 0 ? ' (+' + r.delay + ')' : '') + '</div><div style="font-weight:500">' + (work ? 'Stockholm C' : 'Västerås C') + '</div></div>' +
+        '<div class="track"><div class="t1">Spår</div><div class="t2">' + esc(tr.from.track || '–') + '</div></div></div>' +
+      devs +
+      '<div class="steps">' + steps.join('') + '</div>' +
+      '</div>';
+    show('detail');
+  }
+
+  var MARGINS = [
+    ['walkHome', 'Hem ↔ Hammarbyhöjden', 'Gångtid till och från T-banan'],
+    ['changeC', 'T-Centralen ↔ tåget', 'Byte på Centralen'],
+    ['changeV', 'Västerås C ↔ bussen', 'Byte i Västerås'],
+    ['walkWork', 'Finnslätten ↔ kontoret', 'Gångtid från hållplatsen']
+  ];
+  function renderSettings() {
+    $('margins').innerHTML = MARGINS.map(function (m) {
+      return '<div class="setrow"><div class="col" style="gap:1px"><div style="font-weight:600">' + m[1] + '</div><div class="small">' + m[2] + '</div></div>' +
+        '<div class="stepper"><button data-k="' + m[0] + '" data-d="-1" aria-label="Minska ' + m[1] + '">−</button>' +
+        '<output id="out-' + m[0] + '">' + cfg[m[0]] + ' min</output>' +
+        '<button data-k="' + m[0] + '" data-d="1" aria-label="Öka ' + m[1] + '">+</button></div></div>';
+    }).join('');
+    $('hide-fast').checked = !!cfg.hideFast;
+    $('pin').value = cfg.pin || '';
+  }
+
+  // ---------- Händelser ----------
+  $('dir-work').addEventListener('click', function () { if (dir !== 'work') { dir = 'work'; data = null; renderList(); fetchData(); } });
+  $('dir-home').addEventListener('click', function () { if (dir !== 'home') { dir = 'home'; data = null; renderList(); fetchData(); } });
+  $('refresh').addEventListener('click', fetchData);
+  $('open-settings').addEventListener('click', function () { renderSettings(); show('settings'); });
+  $('trips').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-i]');
+    if (b) { selected = Number(b.getAttribute('data-i')); renderDetail(); }
+  });
+  document.addEventListener('click', function (e) {
+    var go = e.target.closest('[data-go]');
+    if (go) { show('list'); renderList(); }
+  });
+  $('margins').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-k]');
+    if (!b) return;
+    var k = b.getAttribute('data-k');
+    cfg[k] = Math.max(0, Math.min(60, cfg[k] + Number(b.getAttribute('data-d'))));
+    $('out-' + k).textContent = cfg[k] + ' min';
+    save();
+  });
+  $('hide-fast').addEventListener('change', function (e) { cfg.hideFast = e.target.checked; save(); });
+  $('pin').addEventListener('change', function (e) {
+    cfg.pin = e.target.value.trim(); save();
+    if (problem && problem.kind === 'pin') fetchData();
+  });
+
+  // Uppdatera var 90:e sekund när appen syns, och direkt när den öppnas igen.
+  setInterval(function () { if (!document.hidden && !$('v-list').hidden) fetchData(); }, 90000);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && data && Date.now() - data.generatedAt > 60000) fetchData();
+  });
+  setInterval(function () { if (!$('v-list').hidden && data) renderList(); }, 20000);
+
+  window.__pendel = { buildTrips: buildTrips, demo: demo };
+  renderList();
+  fetchData();
+})();
+</script>
+</body>
+</html>

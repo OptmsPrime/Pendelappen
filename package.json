@@ -1,0 +1,6 @@
+{
+  "name": "pendelappen",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=18" }
+}
