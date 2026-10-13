@@ -1,9 +1,8 @@
-import { checkPin, lookupStop, trains, STOPS } from './_lib.js';
+import { lookupStop, trains, STOPS } from './_lib.js';
 
-// GET /api/debug  visar vilka hållplatser appen hittat och om nycklarna fungerar (aldrig nycklarna själva).
+// GET /api/debug  (kräver ingen PIN) visar vilka hållplatser appen hittat och om nycklarna fungerar (aldrig nycklarna själva).
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
-  if (!checkPin(req, res)) return;
   const out = {
     keys: {
       TRAFIKVERKET_KEY: !!process.env.TRAFIKVERKET_KEY,
