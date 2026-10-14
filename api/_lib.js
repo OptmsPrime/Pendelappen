@@ -107,44 +107,65 @@ export async function lookupStop(def) {
   });
 }
 
-async function board(kind, id, ms) {
-  const t = msToParam(Math.floor(ms / (5 * MIN)) * 5 * MIN); // avrunda för bättre cache
-  return cached(`${kind}:${id}:${t}`, 60 * 1000, () => tlGet(`/${kind}/${encodeURIComponent(id)}/${t}`));
+// Trafiklabs gratisnivå tillåter 25 anrop per minut. Därför:
+// - bara avgångstavlor hämtas (ankomsten räknas fram med känd åktid),
+// - tavlorna läggs på hela timmar så att samma tavla återanvänds mellan anrop,
+// - svar sparas i 2 minuter, och ett 429-svar gör att vi väntar 30 sekunder innan nästa försök.
+let blockedUntil = 0;
+async function board(id, ms) {
+  const hourStart = Math.floor(ms / HOUR) * HOUR;
+  const t = msToParam(hourStart);
+  return cached(`departures:${id}:${t}`, 2 * MIN, async () => {
+    if (Date.now() < blockedUntil) throw new Error('Trafiklab är tillfälligt överbelastat, försök igen om en halv minut.');
+    try {
+      return await tlGet(`/departures/${encodeURIComponent(id)}/${t}`);
+    } catch (e) {
+      if (/ 429 /.test(e.message)) {
+        blockedUntil = Date.now() + 30 * 1000;
+        throw new Error('För många anrop till Trafiklab just nu, försök igen om en halv minut.');
+      }
+      throw e;
+    }
+  });
 }
 
-const tripKey = (x) => (x && x.trip && x.trip.trip_id ? `${x.trip.trip_id}|${x.trip.start_date || ''}` : null);
+// Delsträckorna appen använder. Åktiderna är uppmätta från Trafiklabs tidtabell 2026-10-13.
+export const LEGS = {
+  workMetro: { stop: 'homeMetro', line: '17', ride: 12, toName: 'T-Centralen', ok: (dir) => !/skarpn/i.test(dir) },
+  workBus: { stop: 'vasBus', line: '4', ride: 10, toName: 'Finnslätten', ok: (dir) => /finnsl/i.test(dir) },
+  homeBus: { stop: 'workBus', line: '4', ride: 13, toName: 'Västerås Centralstation', ok: () => true },
+  homeMetro: { stop: 'cityMetro', line: '17', ride: 12, toName: 'Hammarbyhöjden', ok: (dir) => /skarpn/i.test(dir) }
+};
 
-// Hämtar avgångar från en hållplats och ankomster till en annan, och parar ihop samma tur.
-export async function leg(from, to, startMs, hours) {
-  const n = Math.min(4, Math.max(1, Math.ceil(hours)));
-  const starts = Array.from({ length: n }, (_, i) => startMs + i * HOUR);
-  const depBoards = await Promise.all(starts.map((s) => board('departures', from.id, s)));
-  const arrBoards = await Promise.all([...starts, startMs + n * HOUR].map((s) => board('arrivals', to.id, s)));
-  const arrBy = new Map();
-  for (const a of arrBoards.flatMap((b) => b.arrivals || [])) {
-    const k = tripKey(a);
-    if (k) arrBy.set(k, a);
-  }
+// Avgångar för en delsträcka mellan startMs och startMs + hours.
+export async function leg(legName, startMs, hours) {
+  const def = LEGS[legName];
+  const from = await lookupStop(STOPS[def.stop]);
+  const endMs = startMs + Math.max(0.25, Math.min(5, hours)) * HOUR;
+  const starts = [];
+  for (let h = Math.floor(startMs / HOUR) * HOUR; h < endMs; h += HOUR) starts.push(h);
+  const boards = await Promise.all(starts.map((s) => board(from.id, s)));
   const out = [];
   const seen = new Set();
-  for (const d of depBoards.flatMap((b) => b.departures || [])) {
-    const k = tripKey(d);
-    if (!k || seen.has(k)) continue;
-    const a = arrBy.get(k);
-    if (!a) continue;
-    const dep = { sched: localToMs(d.scheduled), rt: localToMs(d.realtime || d.scheduled) };
-    const arr = { sched: localToMs(a.scheduled), rt: localToMs(a.realtime || a.scheduled) };
-    if (!(arr.rt > dep.rt)) continue;
+  for (const d of boards.flatMap((b) => b.departures || [])) {
+    const line = (d.route && (d.route.designation || d.route.name)) || '';
+    const dest = (d.route && (d.route.direction || (d.route.destination && d.route.destination.name))) || '';
+    if (String(line) !== def.line || !def.ok(dest)) continue;
+    const k = (d.trip && d.trip.trip_id) || `${line}|${d.scheduled}`;
+    if (seen.has(k)) continue;
     seen.add(k);
+    const sched = localToMs(d.scheduled);
+    const rt = localToMs(d.realtime || d.scheduled);
+    if (rt < startMs - 5 * MIN || rt > endMs) continue;
     const plat = d.realtime_platform || d.scheduled_platform;
     out.push({
-      line: (d.route && (d.route.designation || d.route.name)) || '',
+      line,
       mode: d.route && d.route.transport_mode,
-      dest: (d.route && (d.route.direction || (d.route.destination && d.route.destination.name))) || '',
-      canceled: d.canceled === true || d.canceled === 'true' || a.canceled === true || a.canceled === 'true',
+      dest,
+      canceled: d.canceled === true || d.canceled === 'true',
       realtime: !!d.is_realtime,
-      from: { ...dep, name: (d.stop && d.stop.name) || from.name, platform: plat ? plat.designation : null },
-      to: { ...arr, name: (a.stop && a.stop.name) || to.name }
+      from: { sched, rt, name: (d.stop && d.stop.name) || from.name, platform: plat ? plat.designation : null },
+      to: { sched: sched + def.ride * MIN, rt: rt + def.ride * MIN, name: def.toName, estimated: true }
     });
   }
   return out.sort((x, y) => x.from.rt - y.from.rt);

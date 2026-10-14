@@ -292,15 +292,20 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
     (d.trains || []).forEach(function (tr) {
       if (m.hideFast && /snabbt|x ?2000/i.test(tr.product || '')) return;
       var dep = tr.from.rt, arr = tr.to.rt, metro, bus, leave, arrive, gaps;
+      // Saknas T-bane- eller bussdata helt (t.ex. om Trafiklab inte svarar) uppskattas steget från marginal och åktid.
+      var noMetro = !(d.metro && d.metro.length), noBus = !(d.bus && d.bus.length);
+      var est = function (line, fromRt, ride, fromName, toName) {
+        return { line: line, dest: '', est: true, canceled: false, from: { sched: fromRt, rt: fromRt, name: fromName }, to: { sched: fromRt + ride * MIN, rt: fromRt + ride * MIN, name: toName } };
+      };
       if (d.dir === 'work') {
-        metro = latest(d.metro || [], function (x) { return x.to.rt <= dep - m.changeC * MIN; });
-        bus = earliest(d.bus || [], function (x) { return x.from.rt >= arr + m.changeV * MIN; });
+        metro = noMetro ? est('17', dep - m.changeC * MIN - 12 * MIN, 12, 'Hammarbyhöjden', 'T-Centralen') : latest(d.metro, function (x) { return x.to.rt <= dep - m.changeC * MIN; });
+        bus = noBus ? est('4', arr + m.changeV * MIN, 10, 'Västerås Centralstation', 'Finnslätten') : earliest(d.bus, function (x) { return x.from.rt >= arr + m.changeV * MIN; });
         leave = metro ? metro.from.rt - m.walkHome * MIN : null;
         arrive = bus ? bus.to.rt + m.walkWork * MIN : null;
         gaps = [metro ? dep - metro.to.rt : null, bus ? bus.from.rt - arr : null];
       } else {
-        bus = latest(d.bus || [], function (x) { return x.to.rt <= dep - m.changeV * MIN; });
-        metro = earliest(d.metro || [], function (x) { return x.from.rt >= arr + m.changeC * MIN; });
+        bus = noBus ? est('4', dep - m.changeV * MIN - 13 * MIN, 13, 'Finnslätten', 'Västerås Centralstation') : latest(d.bus, function (x) { return x.to.rt <= dep - m.changeV * MIN; });
+        metro = noMetro ? est('17', arr + m.changeC * MIN, 12, 'T-Centralen', 'Hammarbyhöjden') : earliest(d.metro, function (x) { return x.from.rt >= arr + m.changeC * MIN; });
         leave = bus ? bus.from.rt - m.walkWork * MIN : null;
         arrive = metro ? metro.to.rt + m.walkHome * MIN : null;
         gaps = [bus ? dep - bus.to.rt : null, metro ? metro.from.rt - arr : null];
@@ -315,6 +320,7 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
       if (tr.canceled) status = { text: 'Inställt', cls: 'bad' };
       else if (missed) status = { text: 'Hinns inte', cls: 'bad' };
       else if (!metro || !bus) status = { text: 'Anslutning saknas', cls: 'warn' };
+      else if (metro.est || bus.est) status = { text: 'Uppskattad tid', cls: 'warn' };
       else if (delay > 0) status = { text: 'Tåget +' + delay + ' min', cls: 'warn' };
       else status = { text: 'I tid', cls: 'ok' };
       out.push({ train: tr, metro: metro, bus: bus, leave: leave, arrive: arrive, gaps: gaps, delay: delay, status: status, missed: missed, late: late });
@@ -473,7 +479,7 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
       b.innerHTML = '<b>Exempeldata.</b> Riktiga avgångar visas när appen ligger på Vercel med dina nycklar.';
     } else if (data && data.warnings && data.warnings.length) {
       b.hidden = false; b.className = 'banner warn';
-      b.innerHTML = '<b>Delvis data.</b> ' + data.warnings.map(esc).join(' · ');
+      b.innerHTML = '<b>T-bana eller buss saknas just nu.</b> Tiderna för dem är uppskattade. ' + esc(data.warnings[0].replace(/^[^:]+: /, ''));
     }
 
     var box = $('trips');
@@ -499,8 +505,9 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
       box.innerHTML = trips.map(function (r, i) {
         var tr = r.train, first = i === best;
         var a = dir === 'work' ? r.metro : r.bus, c = dir === 'work' ? r.bus : r.metro;
-        var aChip = dir === 'work' ? 'T' + esc(a ? a.line : '17') + ' ' + t(a && a.from.rt) : 'Buss ' + esc(a ? a.line : '4') + ' ' + t(a && a.from.rt);
-        var cChip = dir === 'work' ? 'Buss ' + esc(c ? c.line : '4') + ' ' + t(c && c.from.rt) : 'T' + esc(c ? c.line : '17') + ' ' + t(c && c.from.rt);
+        var ta = (a && a.est ? '≈' : '') + t(a && a.from.rt), tc = (c && c.est ? '≈' : '') + t(c && c.from.rt);
+        var aChip = dir === 'work' ? 'T' + esc(a ? a.line : '17') + ' ' + ta : 'Buss ' + esc(a ? a.line : '4') + ' ' + ta;
+        var cChip = dir === 'work' ? 'Buss ' + esc(c ? c.line : '4') + ' ' + tc : 'T' + esc(c ? c.line : '17') + ' ' + tc;
         var trainChip = 'Tåg ' + t(tr.from.rt) + (tr.from.track ? ' · spår ' + esc(tr.from.track) : '');
         var note = '';
         var g = r.leave ? mins(r.leave - now) : null;
@@ -705,7 +712,7 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
       cfg.arrive[dir] = v; save(); pickHint();
       renderList();
       clearTimeout(fetchTimer);
-      fetchTimer = setTimeout(fetchData, 350);
+      fetchTimer = setTimeout(fetchData, 700);
     }, 160);
   }
   function onWheelClick(e) {

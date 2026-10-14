@@ -1,4 +1,4 @@
-import { checkPin, lookupStop, leg, trains, STOPS, time } from './_lib.js';
+import { checkPin, leg, trains, time } from './_lib.js';
 
 const { MIN, HOUR } = time;
 
@@ -47,18 +47,15 @@ export default async function handler(req, res) {
       let firstLegStart = firstDep - 50 * MIN;
       if (firstDep > now && firstLegStart < now - 10 * MIN) firstLegStart = now - 10 * MIN;
 
-      const [homeMetro, cityMetro, vasBus, workBus] = await Promise.all([
-        lookupStop(STOPS.homeMetro), lookupStop(STOPS.cityMetro), lookupStop(STOPS.vasBus), lookupStop(STOPS.workBus)
-      ]);
-
+      // Första steget behöver täcka tiden före första tåget, sista steget tiden efter sista ankomsten.
       const jobs = dir === 'work'
         ? [
-            leg(homeMetro, cityMetro, firstLegStart, (lastDep - firstLegStart) / HOUR),
-            leg(vasBus, workBus, firstArr, (lastArr + 45 * MIN - firstArr) / HOUR)
+            leg('workMetro', firstLegStart, (lastDep - firstLegStart) / HOUR),
+            leg('workBus', firstArr, (lastArr + 40 * MIN - firstArr) / HOUR)
           ]
         : [
-            leg(cityMetro, homeMetro, firstArr, (lastArr + 30 * MIN - firstArr) / HOUR),
-            leg(workBus, vasBus, firstLegStart, (lastDep - firstLegStart) / HOUR)
+            leg('homeMetro', firstArr, (lastArr + 30 * MIN - firstArr) / HOUR),
+            leg('homeBus', firstLegStart, (lastDep - firstLegStart) / HOUR)
           ];
       const [m, b] = await Promise.allSettled(jobs);
       if (m.status === 'fulfilled') metro = m.value; else warnings.push('T-banan: ' + m.reason.message);
