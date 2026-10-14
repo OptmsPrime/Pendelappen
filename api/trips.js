@@ -4,19 +4,29 @@ const { MIN, HOUR } = time;
 
 // GET /api/trips?dir=work|home              Åk nu: tåg de närmaste fyra timmarna
 // GET /api/trips?dir=work|home&arriveBy=ms  Framme senast: tåg som hinner fram till den tiden
+// GET /api/trips?dir=work|home&before=ms    Fyra tåg som avgår före den tiden (tidigare avgångar)
+// GET /api/trips?dir=work|home&after=ms     Fyra tåg som avgår efter den tiden (senare avgångar)
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (!checkPin(req, res)) return;
   const dir = req.query.dir === 'home' ? 'home' : 'work';
   const now = Date.now();
   const arriveBy = Number(req.query.arriveBy) > now ? Number(req.query.arriveBy) : null;
+  const before = Number(req.query.before) || null;
+  const after = Number(req.query.after) || null;
   const warnings = [];
 
   try {
     const fromSig = dir === 'work' ? 'Cst' : 'Vå';
     const toSig = dir === 'work' ? 'Vå' : 'Cst';
     let list;
-    if (arriveBy) {
+    if (before) {
+      const all = await trains(fromSig, toSig, before - 4 * HOUR, before - MIN);
+      list = all.filter((t) => t.from.sched < before).slice(-4);
+    } else if (after) {
+      const all = await trains(fromSig, toSig, after + MIN, after + 4 * HOUR);
+      list = all.filter((t) => t.from.sched > after).slice(0, 4);
+    } else if (arriveBy) {
       // Tåget behöver vara framme minst 10 min före måltiden för att sista steget ska hinnas.
       const all = await trains(fromSig, toSig, arriveBy - 4 * HOUR, arriveBy - 45 * MIN);
       list = all.filter((t) => t.to.rt <= arriveBy - 10 * MIN && t.from.rt > now - 2 * MIN).slice(-4);
@@ -33,7 +43,9 @@ export default async function handler(req, res) {
       const firstArr = Math.min(...list.map((t) => t.to.rt));
       const lastArr = Math.max(...list.map((t) => t.to.rt));
       // Första steget (T-banan eller bussen till tåget) söks från knappt en timme före första tåget.
-      const firstLegStart = Math.max(now - 10 * MIN, firstDep - 50 * MIN);
+      // Ligger tågen framåt i tiden behöver inget hämtas från före nu.
+      let firstLegStart = firstDep - 50 * MIN;
+      if (firstDep > now && firstLegStart < now - 10 * MIN) firstLegStart = now - 10 * MIN;
 
       const [homeMetro, cityMetro, vasBus, workBus] = await Promise.all([
         lookupStop(STOPS.homeMetro), lookupStop(STOPS.cityMetro), lookupStop(STOPS.vasBus), lookupStop(STOPS.workBus)
@@ -53,7 +65,7 @@ export default async function handler(req, res) {
       if (b.status === 'fulfilled') bus = b.value; else warnings.push('Bussen: ' + b.reason.message);
     }
 
-    res.status(200).json({ dir, arriveBy, generatedAt: now, trains: list, metro, bus, warnings });
+    res.status(200).json({ dir, arriveBy, before, after, generatedAt: now, trains: list, metro, bus, warnings });
   } catch (e) {
     res.status(502).json({ error: e.message || 'Något gick fel när data hämtades.' });
   }

@@ -30,6 +30,7 @@
   color-scheme: dark }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { background: var(--bg); color: var(--fg); }
 body { margin: 0; font-family: var(--sans); font-size: 15px; -webkit-font-smoothing: antialiased; }
 button { font: inherit; color: inherit; cursor: pointer; }
@@ -54,6 +55,15 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); font-weight: 600; }
 
 .list { display: flex; flex-direction: column; gap: 12px; }
+.trip.dim { opacity: 0.6; }
+
+/* Dra förbi kanten för fler avgångar. Knappen fungerar också att trycka på. */
+.more { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 44px; border: 1px dashed var(--line); border-radius: 12px; background: transparent; color: var(--muted); font-family: var(--mono); font-size: 12px; transition: background 0.15s, color 0.15s, transform 0.15s; }
+.more svg { stroke: currentColor; transition: transform 0.2s; }
+.more.armed { background: var(--soft); color: var(--fg); border-style: solid; }
+.more.armed svg { transform: rotate(180deg); }
+.more.busy { color: var(--fg); }
+@media (prefers-reduced-motion: reduce) { .more, .more svg { transition: none; } }
 
 /* Tidshjul i stil med iOS-larmet: tre synliga rader, mittenraden är vald. */
 .picker { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 8px 16px 12px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
@@ -166,7 +176,15 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
       </div>
 
       <div id="banner" hidden></div>
+      <button class="more" id="more-before" hidden>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
+        <span>Dra ned för tidigare avgångar</span>
+      </button>
       <div class="list" id="trips"></div>
+      <button class="more" id="more-after" hidden>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7"></path></svg>
+        <span>Dra upp för senare avgångar</span>
+      </button>
       <div class="status" id="updated"></div>
     </div>
   </section>
@@ -289,22 +307,24 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
       }
       var firstStep = d.dir === 'work' ? metro : bus;
       var missed = firstStep ? firstStep.from.rt < now : dep < now;
-      if (missed) return;
-      if (target && (arrive == null || arrive > target)) return;
+      if (missed && tr.extra !== 'before' && !d.showPast) return;
+      var late = !!(target && (arrive == null || arrive > target));
+      if (late && tr.extra !== 'after') return;
       var delay = mins(tr.from.rt - tr.from.sched);
       var status;
       if (tr.canceled) status = { text: 'Inställt', cls: 'bad' };
+      else if (missed) status = { text: 'Hinns inte', cls: 'bad' };
       else if (!metro || !bus) status = { text: 'Anslutning saknas', cls: 'warn' };
       else if (delay > 0) status = { text: 'Tåget +' + delay + ' min', cls: 'warn' };
       else status = { text: 'I tid', cls: 'ok' };
-      out.push({ train: tr, metro: metro, bus: bus, leave: leave, arrive: arrive, gaps: gaps, delay: delay, status: status });
+      out.push({ train: tr, metro: metro, bus: bus, leave: leave, arrive: arrive, gaps: gaps, delay: delay, status: status, missed: missed, late: late });
     });
     return out;
   }
 
   // ---------- Exempeldata (när appen inte når sitt API) ----------
-  function demo(dir, now, target) {
-    var base = Math.floor((target ? target - 3 * 60 * MIN : now) / (30 * MIN)) * 30 * MIN;
+  function demo(dir, now, target, baseMs) {
+    var base = Math.floor((baseMs || (target ? target - 3 * 60 * MIN : now)) / (30 * MIN)) * 30 * MIN;
     var tr = [], me = [], bu = [];
     for (var i = 0; i < 5; i++) {
       var dep = base + (i * 30 + 25) * MIN, late = i === 1 ? 4 * MIN : 0;
@@ -330,15 +350,14 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
   // ---------- Hämta ----------
   var dir = 'work';
   var data = null, trips = [], selected = 0, loading = false, problem = null;
+  var extra = { key: null, before: [], after: [] }, moreBusy = null;
 
-  function fetchData() {
-    if (loading) return;
-    loading = true; setSpin(true);
-    var want = dir, key = wantKey(), target = currentTarget();
+  function apiGet(qs) {
     var ctrl = window.AbortController ? new AbortController() : null;
     var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 20000);
-    fetch('api/trips?dir=' + want + (target ? '&arriveBy=' + target : ''), { headers: { 'x-app-pin': cfg.pin || '' }, signal: ctrl ? ctrl.signal : undefined })
+    return fetch('api/trips?' + qs, { headers: { 'x-app-pin': cfg.pin || '' }, signal: ctrl ? ctrl.signal : undefined })
       .then(function (r) {
+        clearTimeout(timer);
         var isJson = (r.headers.get('content-type') || '').indexOf('json') >= 0;
         if (!isJson) throw { demo: true };
         return r.json().then(function (j) {
@@ -346,7 +365,61 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
           if (!r.ok) throw { msg: j.error || ('Fel ' + r.status) };
           return j;
         });
+      }, function (e) { clearTimeout(timer); throw e; });
+  }
+
+  // Slår ihop grunddata med tidigare/senare avgångar. Samma tur räknas bara en gång.
+  function merged() {
+    if (!data) return null;
+    var parts = [data];
+    if (extra.key === data.key) parts = extra.before.concat([data], extra.after);
+    var seenT = {}, seenM = {}, seenB = {}, out = { dir: data.dir, key: data.key, arriveBy: data.arriveBy, generatedAt: data.generatedAt, demo: data.demo, warnings: data.warnings, trains: [], metro: [], bus: [] };
+    parts.forEach(function (p) {
+      (p.trains || []).forEach(function (x) { var k = x.id + '|' + x.from.sched; if (!seenT[k]) { seenT[k] = 1; out.trains.push(Object.assign({}, x, { extra: p === data ? null : p.side })); } });
+      (p.metro || []).forEach(function (x) { var k = x.line + '|' + x.from.sched; if (!seenM[k]) { seenM[k] = 1; out.metro.push(x); } });
+      (p.bus || []).forEach(function (x) { var k = x.line + '|' + x.from.sched; if (!seenB[k]) { seenB[k] = 1; out.bus.push(x); } });
+    });
+    out.trains.sort(function (a, b) { return a.from.sched - b.from.sched; });
+    out.showPast = extra.key === data.key && extra.before.length > 0;
+    return out;
+  }
+
+  function loadMore(side) {
+    if (moreBusy || !data || !data.trains || !data.trains.length) return;
+    var m = merged();
+    var edge = side === 'before' ? m.trains[0].from.sched : m.trains[m.trains.length - 1].from.sched;
+    var key = data.key, want = dir;
+    moreBusy = side; renderMore();
+    apiGet('dir=' + want + '&' + side + '=' + edge)
+      .catch(function (e) {
+        if (e && e.demo) {
+          var d = demo(want, Date.now(), null, side === 'after' ? edge : edge - 150 * MIN);
+          d.trains = d.trains.filter(function (x) { return side === 'after' ? x.from.sched > edge : x.from.sched < edge; });
+          return d;
+        }
+        throw e;
       })
+      .then(function (j) {
+        if (key !== data.key) return;
+        if (extra.key !== key) extra = { key: key, before: [], after: [] };
+        j.side = side;
+        if (side === 'before') extra.before.unshift(j); else extra.after.push(j);
+        if (!j.trains.length) j.empty = true;
+      })
+      .catch(function () { /* misslyckad extra-hämtning: listan står kvar som den var */ })
+      .then(function () {
+        moreBusy = null;
+        renderList();
+        if (side === 'after') requestAnimationFrame(function () { window.scrollBy({ top: 160, behavior: 'smooth' }); });
+      });
+  }
+
+  function fetchData() {
+    if (loading) return;
+    loading = true; setSpin(true);
+    var want = dir, key = wantKey(), target = currentTarget();
+    if (extra.key !== key) extra = { key: key, before: [], after: [] };
+    apiGet('dir=' + want + (target ? '&arriveBy=' + target : ''))
       .then(function (j) { problem = null; j.key = key; data = j; })
       .catch(function (e) {
         if (e && e.pin) { problem = { kind: 'pin', msg: e.msg }; data = null; }
@@ -355,7 +428,6 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
         else { problem = null; data = demo(want, Date.now(), target); data.key = key; }
       })
       .then(function () {
-        clearTimeout(timer);
         loading = false; setSpin(false);
         if (key !== wantKey()) return fetchData();
         renderList();
@@ -407,12 +479,17 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
     if (!data || data.key !== wantKey()) {
       box.innerHTML = problem ? '' : '<div class="empty">Hämtar avgångar…</div>';
       $('updated').textContent = '';
+      renderMore();
       return;
     }
     var target = data.arriveBy || null;
-    trips = buildTrips(data, marginsFor(dir), now, target);
-    trips = target ? trips.slice(-4) : trips.slice(0, 4);
-    var best = target ? trips.length - 1 : 0;
+    trips = buildTrips(merged(), marginsFor(dir), now, target);
+    // Markerad resa: första som går i Åk nu, sista som hinner fram i Framme senast.
+    var best = -1;
+    trips.forEach(function (r, i) {
+      if (r.missed || r.late) return;
+      if (target) best = i; else if (best < 0) best = i;
+    });
     if (!trips.length) {
       box.innerHTML = target
         ? '<div class="empty">Ingen resa hittades som är framme senast ' + t(target) + '.<br>Prova en senare tid.</div>'
@@ -427,9 +504,11 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
         var note = '';
         var g = r.leave ? mins(r.leave - now) : null;
         if (first && g != null && g < 120) note = g <= 0 ? 'Gå nu' : 'Gå om ' + g + ' min';
+        else if (r.missed && g != null) note = 'Skulle gått för ' + (-g) + ' min sedan';
+        else if (target && r.arrive && r.late) note = mins(r.arrive - target) + ' min efter';
         else if (target && r.arrive) note = mins(target - r.arrive) + ' min före';
         else if (r.delay > 0 && r.metro && r.bus) note = 'Bytet håller ändå';
-        return '<button class="trip' + (first ? ' first' : '') + '" data-i="' + i + '">' +
+        return '<button class="trip' + (first ? ' first' : '') + (r.missed || r.late ? ' dim' : '') + '" data-i="' + i + '">' +
           '<div class="row" style="align-items:baseline;width:100%">' +
             '<div class="col" style="gap:2px"><div class="label">' + (dir === 'work' ? 'Gå hemifrån' : 'Gå från jobbet') + '</div><div class="big">' + t(r.leave) + '</div></div>' +
             '<div class="col" style="gap:2px;align-items:flex-end"><div class="label">Framme</div><div class="mid">' + t(r.arrive) + '</div></div>' +
@@ -444,7 +523,53 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
       }).join('');
     }
     $('updated').textContent = (data.demo ? 'Exempeldata · ' : 'Uppdaterad ') + t(data.generatedAt);
+    renderMore();
   }
+
+  function renderMore() {
+    var ok = !!(data && data.key === wantKey() && data.trains && data.trains.length);
+    var ex = extra.key === wantKey() ? extra : { before: [], after: [] };
+    var noBefore = ex.before.length && ex.before[0].empty;
+    var noAfter = ex.after.length && ex.after[ex.after.length - 1].empty;
+    [['before', 'Tidigare', noBefore, 'Dra ned för tidigare avgångar'], ['after', 'Senare', noAfter, 'Dra upp för senare avgångar']].forEach(function (x) {
+      var el = $('more-' + x[0]);
+      el.hidden = !ok;
+      el.classList.toggle('busy', moreBusy === x[0]);
+      el.disabled = !!x[2];
+      el.querySelector('span').textContent = moreBusy === x[0] ? 'Hämtar…' : x[2] ? 'Inga fler tåg ' + (x[0] === 'before' ? 'före' : 'efter') + ' de här' : x[3];
+    });
+  }
+
+  // ---------- Dra förbi kanten ----------
+  var PULL = 70, pull = null;
+  function atTop() { return window.scrollY <= 0; }
+  function atBottom() { return window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2; }
+  function setArmed(side, on) { var el = $('more-' + side); if (el) el.classList.toggle('armed', on); }
+  document.addEventListener('touchstart', function (e) {
+    if ($('v-list').hidden || e.touches.length !== 1 || e.target.closest('.picker')) { pull = null; return; }
+    pull = { y: e.touches[0].clientY, top: atTop(), bottom: atBottom(), side: null };
+  }, { passive: true });
+  document.addEventListener('touchmove', function (e) {
+    if (!pull) return;
+    var dy = e.touches[0].clientY - pull.y;
+    var side = pull.top && dy > PULL ? 'before' : pull.bottom && dy < -PULL ? 'after' : null;
+    if (!pull.top && atTop()) { pull.top = true; pull.y = e.touches[0].clientY; }
+    if (!pull.bottom && atBottom()) { pull.bottom = true; pull.y = e.touches[0].clientY; }
+    if (side !== pull.side) {
+      if (pull.side) setArmed(pull.side, false);
+      if (side) setArmed(side, true);
+      pull.side = side;
+      if (side) $('more-' + side).querySelector('span').textContent = side === 'before' ? 'Släpp för tidigare avgångar' : 'Släpp för senare avgångar';
+      else renderMore();
+    }
+  }, { passive: true });
+  document.addEventListener('touchend', function () {
+    if (!pull) return;
+    var side = pull.side;
+    pull = null;
+    if (side) { setArmed(side, false); loadMore(side); }
+  });
+  document.addEventListener('touchcancel', function () { if (pull && pull.side) setArmed(pull.side, false); pull = null; renderMore(); });
 
   function renderDetail() {
     var r = trips[selected];
@@ -611,6 +736,8 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
   $('dir-work').addEventListener('click', function () { if (dir !== 'work') { dir = 'work'; showPicker(); renderList(); fetchData(); } });
   $('dir-home').addEventListener('click', function () { if (dir !== 'home') { dir = 'home'; showPicker(); renderList(); fetchData(); } });
   $('refresh').addEventListener('click', fetchData);
+  $('more-before').addEventListener('click', function () { loadMore('before'); });
+  $('more-after').addEventListener('click', function () { loadMore('after'); });
   $('open-settings').addEventListener('click', function () { setDir = dir; renderSettings(); show('settings'); });
   $('set-work').addEventListener('click', function () { setDir = 'work'; renderSettings(); });
   $('set-home').addEventListener('click', function () { setDir = 'home'; renderSettings(); });
