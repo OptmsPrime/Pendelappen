@@ -178,7 +178,7 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
       <div id="banner" hidden></div>
       <button class="more" id="more-before" hidden>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
-        <span>Dra ned för tidigare avgångar</span>
+        <span>Visa tidigare avgångar</span>
       </button>
       <div class="list" id="trips"></div>
       <button class="more" id="more-after" hidden>
@@ -531,7 +531,7 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
     var ex = extra.key === wantKey() ? extra : { before: [], after: [] };
     var noBefore = ex.before.length && ex.before[0].empty;
     var noAfter = ex.after.length && ex.after[ex.after.length - 1].empty;
-    [['before', 'Tidigare', noBefore, 'Dra ned för tidigare avgångar'], ['after', 'Senare', noAfter, 'Dra upp för senare avgångar']].forEach(function (x) {
+    [['before', 'Tidigare', noBefore, 'Visa tidigare avgångar'], ['after', 'Senare', noAfter, 'Dra upp för senare avgångar']].forEach(function (x) {
       var el = $('more-' + x[0]);
       el.hidden = !ok;
       el.classList.toggle('busy', moreBusy === x[0]);
@@ -542,24 +542,23 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
 
   // ---------- Dra förbi kanten ----------
   var PULL = 70, pull = null;
-  function atTop() { return window.scrollY <= 0; }
   function atBottom() { return window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2; }
   function setArmed(side, on) { var el = $('more-' + side); if (el) el.classList.toggle('armed', on); }
   document.addEventListener('touchstart', function (e) {
     if ($('v-list').hidden || e.touches.length !== 1 || e.target.closest('.picker')) { pull = null; return; }
-    pull = { y: e.touches[0].clientY, top: atTop(), bottom: atBottom(), side: null };
+    pull = { y: e.touches[0].clientY, bottom: atBottom(), side: null };
   }, { passive: true });
   document.addEventListener('touchmove', function (e) {
     if (!pull) return;
     var dy = e.touches[0].clientY - pull.y;
-    var side = pull.top && dy > PULL ? 'before' : pull.bottom && dy < -PULL ? 'after' : null;
-    if (!pull.top && atTop()) { pull.top = true; pull.y = e.touches[0].clientY; }
+    // Tidigare avgångar visas med ett tryck på raden överst. Bara dra-förbi längst ner laddar senare.
+    var side = pull.bottom && dy < -PULL ? 'after' : null;
     if (!pull.bottom && atBottom()) { pull.bottom = true; pull.y = e.touches[0].clientY; }
     if (side !== pull.side) {
       if (pull.side) setArmed(pull.side, false);
       if (side) setArmed(side, true);
       pull.side = side;
-      if (side) $('more-' + side).querySelector('span').textContent = side === 'before' ? 'Släpp för tidigare avgångar' : 'Släpp för senare avgångar';
+      if (side) $('more-' + side).querySelector('span').textContent = 'Släpp för senare avgångar';
       else renderMore();
     }
   }, { passive: true });
