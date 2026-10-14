@@ -133,7 +133,7 @@ async function board(id, ms) {
 export const LEGS = {
   workMetro: { stop: 'homeMetro', line: '17', ride: 12, toName: 'T-Centralen', ok: (dir) => !/skarpn/i.test(dir) },
   workBus: { stop: 'vasBus', line: '4', ride: 10, toName: 'Finnslätten', ok: (dir) => /finnsl/i.test(dir) },
-  homeBus: { stop: 'workBus', line: '4', ride: 13, toName: 'Västerås Centralstation', ok: () => true },
+  homeBus: { stop: 'workBus', line: '4', ride: 13, toName: 'Västerås Centralstation', ok: (dir) => !/finnsl/i.test(dir) },
   homeMetro: { stop: 'cityMetro', line: '17', ride: 12, toName: 'Hammarbyhöjden', ok: (dir) => /skarpn/i.test(dir) }
 };
 
