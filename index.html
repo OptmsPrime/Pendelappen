@@ -395,6 +395,7 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; text-wrap: 
         if (e && e.demo) {
           var d = demo(want, Date.now(), null, side === 'after' ? edge : edge - 150 * MIN);
           d.trains = d.trains.filter(function (x) { return side === 'after' ? x.from.sched > edge : x.from.sched < edge; });
+          d.trains = side === 'after' ? d.trains.slice(0, 2) : d.trains.slice(-2);
           return d;
         }
         throw e;

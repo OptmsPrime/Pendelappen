@@ -4,8 +4,8 @@ const { MIN, HOUR } = time;
 
 // GET /api/trips?dir=work|home              Åk nu: tåg de närmaste fyra timmarna
 // GET /api/trips?dir=work|home&arriveBy=ms  Framme senast: tåg som hinner fram till den tiden
-// GET /api/trips?dir=work|home&before=ms    Fyra tåg som avgår före den tiden (tidigare avgångar)
-// GET /api/trips?dir=work|home&after=ms     Fyra tåg som avgår efter den tiden (senare avgångar)
+// GET /api/trips?dir=work|home&before=ms    Två tåg som avgår före den tiden (tidigare avgångar)
+// GET /api/trips?dir=work|home&after=ms     Två tåg som avgår efter den tiden (senare avgångar)
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (!checkPin(req, res)) return;
@@ -22,10 +22,10 @@ export default async function handler(req, res) {
     let list;
     if (before) {
       const all = await trains(fromSig, toSig, before - 4 * HOUR, before - MIN);
-      list = all.filter((t) => t.from.sched < before).slice(-4);
+      list = all.filter((t) => t.from.sched < before).slice(-2);
     } else if (after) {
       const all = await trains(fromSig, toSig, after + MIN, after + 4 * HOUR);
-      list = all.filter((t) => t.from.sched > after).slice(0, 4);
+      list = all.filter((t) => t.from.sched > after).slice(0, 2);
     } else if (arriveBy) {
       // Tåget behöver vara framme minst 10 min före måltiden för att sista steget ska hinnas.
       const all = await trains(fromSig, toSig, arriveBy - 4 * HOUR, arriveBy - 45 * MIN);
