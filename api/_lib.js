@@ -116,7 +116,7 @@ const tripKey = (x) => (x && x.trip && x.trip.trip_id ? `${x.trip.trip_id}|${x.t
 
 // Hämtar avgångar från en hållplats och ankomster till en annan, och parar ihop samma tur.
 export async function leg(from, to, startMs, hours) {
-  const n = Math.min(3, Math.max(1, Math.ceil(hours)));
+  const n = Math.min(4, Math.max(1, Math.ceil(hours)));
   const starts = Array.from({ length: n }, (_, i) => startMs + i * HOUR);
   const depBoards = await Promise.all(starts.map((s) => board('departures', from.id, s)));
   const arrBoards = await Promise.all([...starts, startMs + n * HOUR].map((s) => board('arrivals', to.id, s)));
